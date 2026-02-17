@@ -56,6 +56,7 @@ Each of these becomes a node on the visual canvas with full details.
 | `plan_completed` | `{}` | Mark plan done |
 | `plan_failed` | `{ error: string }` | Mark plan failed |
 | `check_rerun` | `{ timeout_ms? }` | Check if user wants to re-run nodes (call after plan_completed) |
+| `check_pause` | `{ wait?: boolean }` | Check if user paused execution (call before each node) |
 
 ---
 
@@ -184,8 +185,12 @@ Each of these becomes a node on the visual canvas with full details.
    a. Call update_node_status(node_id, "active")
    b. Execute using firstNode.fieldValues, firstNode.attachments, firstNode.metaInstructions
    c. Call update_node_status(node_id, "completed", output_summary)
-   d. Response includes nextNode with the next node's inputs, or isLastNode: true
-6. Continue with each nextNode until isLastNode is true
+   d. Check response: if isPaused is true, call check_pause({ wait: true }) to wait
+   e. Response includes nextNode with the next node's inputs, or isLastNode: true
+6. For each nextNode:
+   a. Execute the node as above
+   b. Check isPaused in response; if true, wait with check_pause({ wait: true })
+   c. Continue until isLastNode is true
 7. Call plan_completed
 ```
 
@@ -246,6 +251,31 @@ When it's the last node:
   "message": "Rerun requested from node n3 (single)"
 }
 ```
+
+## Pause/Resume Workflow
+
+Users can pause execution at any time by clicking the pause button or pressing Space. The `isPaused` flag is included in every `update_node_status` response, so you don't need to poll.
+
+```
+After completing a node:
+1. Call update_node_status(node_id, "completed", output)
+2. Check response.isPaused:
+   - If false → proceed to nextNode
+   - If true → call check_pause({ wait: true }) to block until resumed
+3. Continue execution
+```
+
+### update_node_status Response (with pause)
+```json
+{
+  "success": true,
+  "message": "Node n1 status updated to completed",
+  "nextNode": { ... },
+  "isPaused": true
+}
+```
+
+---
 
 ## Re-run Workflow
 

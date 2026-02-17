@@ -244,6 +244,7 @@ export async function handleCheckPause(wait: boolean = false): Promise<{
 /**
  * Update the status of a node during execution
  * When a node is completed, returns the next node's information including user inputs
+ * Also returns isPaused if the user has paused execution
  */
 export function handleUpdateNodeStatus(
   nodeId: string,
@@ -254,6 +255,7 @@ export function handleUpdateNodeStatus(
   message: string;
   nextNode?: NextNodeInfo;
   isLastNode?: boolean;
+  isPaused?: boolean;
 } {
   const nodes = planStore.getNodes();
   const edges = planStore.getEdges();
@@ -266,6 +268,9 @@ export function handleUpdateNodeStatus(
   planStore.updateNodeStatus(nodeId, status, output);
   wsManager.broadcast({ type: 'node_status_updated', nodeId, status, output });
 
+  // Check if execution is paused
+  const isPaused = planStore.getIsPaused();
+
   // If status is 'completed', find and return the next node's info
   if (status === 'completed') {
     const nextNodeInfo = findNextNode(nodeId, nodes, edges);
@@ -274,19 +279,25 @@ export function handleUpdateNodeStatus(
       return {
         success: true,
         message: `Node ${nodeId} status updated to ${status}`,
-        nextNode: nextNodeInfo
+        nextNode: nextNodeInfo,
+        isPaused,
       };
     } else {
       // No next node - this was the last one
       return {
         success: true,
         message: `Node ${nodeId} status updated to ${status}. This was the last node.`,
-        isLastNode: true
+        isLastNode: true,
+        isPaused,
       };
     }
   }
 
-  return { success: true, message: `Node ${nodeId} status updated to ${status}` };
+  return {
+    success: true,
+    message: `Node ${nodeId} status updated to ${status}`,
+    isPaused,
+  };
 }
 
 /**
