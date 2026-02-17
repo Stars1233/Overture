@@ -31,6 +31,25 @@ export interface FileAttachment {
   description: string;
 }
 
+export interface McpServer {
+  mcpId: string;
+  githubUrl: string;
+  name: string;
+  author: string;
+  description: string;
+  codiconIcon: string;
+  logoUrl: string;
+  category: string;
+  tags: string[];
+  requiresApiKey: boolean;
+  readmeContent: string;
+  isRecommended: boolean;
+  githubStars: number;
+  downloadCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PlanNode {
   id: string;
   type: NodeType;
@@ -48,6 +67,7 @@ export interface PlanNode {
   output?: string;
   attachments?: FileAttachment[];
   metaInstructions?: string;
+  mcpServer?: McpServer;
 }
 
 export interface PlanEdge {
@@ -69,6 +89,7 @@ export interface NodeConfig {
   fieldValues: Record<string, string>;
   attachments: FileAttachment[];
   metaInstructions?: string;
+  mcpServer?: McpServer;
 }
 
 export interface PlanState {

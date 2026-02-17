@@ -1,7 +1,7 @@
 import { StreamingXMLParser } from '../parser/xml-parser.js';
 import { planStore } from '../store/plan-store.js';
 import { wsManager } from '../websocket/ws-server.js';
-import { Plan, NodeStatus } from '../types.js';
+import { Plan, NodeStatus, McpServer } from '../types.js';
 
 let currentParser: StreamingXMLParser | null = null;
 
@@ -16,6 +16,7 @@ export interface NextNodeInfo {
   fieldValues: Record<string, string>;
   attachments: { path: string; name: string; type: string }[];
   metaInstructions?: string;
+  mcpServer?: McpServer;
 }
 
 /**
@@ -143,7 +144,7 @@ export async function handleGetApproval(): Promise<{
   status: 'approved' | 'cancelled' | 'pending';
   fieldValues: Record<string, string>;
   selectedBranches: Record<string, string>;
-  nodeConfigs: Record<string, { fieldValues: Record<string, string>; attachments: { path: string; name: string; type: string }[]; metaInstructions?: string }>;
+  nodeConfigs: Record<string, { fieldValues: Record<string, string>; attachments: { path: string; name: string; type: string }[]; metaInstructions?: string; mcpServer?: McpServer }>;
   firstNode?: NextNodeInfo;
   message: string;
 }> {
@@ -172,6 +173,7 @@ export async function handleGetApproval(): Promise<{
         fieldValues: config.fieldValues || {},
         attachments: config.attachments || [],
         metaInstructions: config.metaInstructions,
+        mcpServer: config.mcpServer,
       };
     }
 
@@ -344,6 +346,7 @@ function findNextNode(
       fieldValues: config.fieldValues || {},
       attachments: config.attachments || [],
       metaInstructions: config.metaInstructions,
+      mcpServer: config.mcpServer,
     };
   }
 
@@ -429,6 +432,7 @@ export async function handleCheckRerun(timeoutMs: number = 5000): Promise<{
       fieldValues: config.fieldValues || {},
       attachments: config.attachments || [],
       metaInstructions: config.metaInstructions,
+      mcpServer: config.mcpServer,
     };
   }
 

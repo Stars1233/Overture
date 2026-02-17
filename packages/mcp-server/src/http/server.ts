@@ -45,6 +45,21 @@ export function startHttpServer(port: number): void {
     res.json(result);
   });
 
+  // Proxy endpoint for MCP marketplace to avoid CORS issues
+  app.get('/api/mcp-marketplace', async (req, res) => {
+    try {
+      const response = await fetch('https://api.cline.bot/v1/mcp/marketplace');
+      if (!response.ok) {
+        return res.status(response.status).json({ error: 'Failed to fetch MCP marketplace' });
+      }
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      console.error('[Overture] Failed to fetch MCP marketplace:', error);
+      res.status(500).json({ error: 'Failed to fetch MCP marketplace' });
+    }
+  });
+
   app.use(express.static(staticPath));
 
   // SPA fallback - serve index.html for all routes
