@@ -62,7 +62,7 @@ export interface Plan {
   agent: string;
   prompt?: string;
   createdAt: string;
-  status: 'streaming' | 'ready' | 'approved' | 'executing' | 'completed' | 'failed';
+  status: 'streaming' | 'ready' | 'approved' | 'executing' | 'paused' | 'completed' | 'failed';
 }
 
 export interface NodeConfig {
@@ -90,6 +90,9 @@ export type WSMessage =
   | { type: 'node_status_updated'; nodeId: string; status: NodeStatus; output?: string }
   | { type: 'plan_completed' }
   | { type: 'plan_failed'; error: string }
+  | { type: 'plan_paused' }
+  | { type: 'plan_resumed' }
+  | { type: 'nodes_inserted'; nodes: PlanNode[]; edges: PlanEdge[]; removedEdgeIds: string[] }
   | { type: 'error'; message: string };
 
 export type WSClientMessage =
@@ -99,4 +102,8 @@ export type WSClientMessage =
       selectedBranches: Record<string, string>;
       nodeConfigs: Record<string, NodeConfig>;
     }
-  | { type: 'cancel_plan' };
+  | { type: 'cancel_plan' }
+  | { type: 'rerun_request'; nodeId: string; mode: 'single' | 'to-bottom' }
+  | { type: 'pause_execution' }
+  | { type: 'resume_execution' }
+  | { type: 'insert_nodes'; afterNodeId: string; nodes: PlanNode[]; edges: PlanEdge[] };

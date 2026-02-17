@@ -206,6 +206,42 @@ export async function handleGetApproval(): Promise<{
 }
 
 /**
+ * Check if execution is paused, and optionally wait for resume
+ */
+export async function handleCheckPause(wait: boolean = false): Promise<{
+  isPaused: boolean;
+  wasResumed: boolean;
+  message: string;
+}> {
+  const isPaused = planStore.getIsPaused();
+
+  if (!isPaused) {
+    return {
+      isPaused: false,
+      wasResumed: false,
+      message: 'Execution is not paused',
+    };
+  }
+
+  if (!wait) {
+    return {
+      isPaused: true,
+      wasResumed: false,
+      message: 'Execution is paused. Call with wait=true to block until resumed.',
+    };
+  }
+
+  // Wait for resume
+  await planStore.waitIfPaused();
+
+  return {
+    isPaused: false,
+    wasResumed: true,
+    message: 'Execution was paused and has now been resumed',
+  };
+}
+
+/**
  * Update the status of a node during execution
  * When a node is completed, returns the next node's information including user inputs
  */
@@ -332,4 +368,64 @@ export function handlePlanFailed(error: string): { success: boolean; message: st
   planStore.updatePlanStatus('failed');
   wsManager.broadcast({ type: 'plan_failed', error });
   return { success: true, message: 'Plan failed' };
+}
+
+/**
+ * Check for pending rerun requests from the user
+ * Returns immediately if there's a pending request, otherwise waits up to timeout
+ */
+export async function handleCheckRerun(timeoutMs: number = 5000): Promise<{
+  hasRerun: boolean;
+  nodeId?: string;
+  mode?: 'single' | 'to-bottom';
+  nodeInfo?: NextNodeInfo;
+  message: string;
+}> {
+  const rerunRequest = await planStore.waitForRerun(timeoutMs);
+
+  if (!rerunRequest) {
+    return {
+      hasRerun: false,
+      message: 'No rerun request pending',
+    };
+  }
+
+  // Reset the nodes that need to be rerun
+  const resetNodeIds = planStore.resetNodesForRerun(rerunRequest.nodeId, rerunRequest.mode);
+
+  // Broadcast node status updates
+  for (const nodeId of resetNodeIds) {
+    wsManager.broadcast({ type: 'node_status_updated', nodeId, status: 'pending' });
+  }
+
+  // Update plan status back to executing
+  planStore.updatePlanStatus('executing');
+  wsManager.broadcast({ type: 'plan_started', plan: planStore.getPlan()! });
+
+  // Get the node info for the rerun start node
+  const nodes = planStore.getNodes();
+  const nodeConfigs = planStore.getNodeConfigs();
+  const startNode = nodes.find(n => n.id === rerunRequest.nodeId);
+
+  let nodeInfo: NextNodeInfo | undefined;
+  if (startNode) {
+    const config = nodeConfigs[startNode.id] || { fieldValues: {}, attachments: [] };
+    nodeInfo = {
+      id: startNode.id,
+      title: startNode.title,
+      type: startNode.type,
+      description: startNode.description,
+      fieldValues: config.fieldValues || {},
+      attachments: config.attachments || [],
+      metaInstructions: config.metaInstructions,
+    };
+  }
+
+  return {
+    hasRerun: true,
+    nodeId: rerunRequest.nodeId,
+    mode: rerunRequest.mode,
+    nodeInfo,
+    message: `Rerun requested from node ${rerunRequest.nodeId} (${rerunRequest.mode})`,
+  };
 }

@@ -1,5 +1,11 @@
 import { Plan, PlanNode, PlanEdge, PlanState, NodeStatus, NodeConfig } from '../types.js';
 
+interface RerunRequest {
+  nodeId: string;
+  mode: 'single' | 'to-bottom';
+  timestamp: number;
+}
+
 class PlanStore {
   private state: PlanState = {
     plan: null,
@@ -12,6 +18,13 @@ class PlanStore {
 
   private approvalResolver: ((value: boolean) => void) | null = null;
   private approvalPromise: Promise<boolean> | null = null;
+  private pendingRerunRequest: RerunRequest | null = null;
+  private rerunResolver: ((value: RerunRequest) => void) | null = null;
+  private rerunPromise: Promise<RerunRequest> | null = null;
+
+  private isPaused: boolean = false;
+  private pauseResolver: ((value: void) => void) | null = null;
+  private pausePromise: Promise<void> | null = null;
 
   // Getters
   getPlan(): Plan | null {
@@ -136,6 +149,169 @@ class PlanStore {
     };
     this.approvalResolver = null;
     this.approvalPromise = null;
+    this.pendingRerunRequest = null;
+    this.rerunResolver = null;
+    this.rerunPromise = null;
+  }
+
+  // Rerun request handling
+  setRerunRequest(nodeId: string, mode: 'single' | 'to-bottom'): void {
+    this.pendingRerunRequest = { nodeId, mode, timestamp: Date.now() };
+
+    // Resolve any waiting promise
+    if (this.rerunResolver) {
+      this.rerunResolver(this.pendingRerunRequest);
+      this.rerunResolver = null;
+      this.rerunPromise = null;
+    }
+  }
+
+  getPendingRerun(): RerunRequest | null {
+    return this.pendingRerunRequest;
+  }
+
+  clearPendingRerun(): void {
+    this.pendingRerunRequest = null;
+  }
+
+  async waitForRerun(timeoutMs: number = 60000): Promise<RerunRequest | null> {
+    // If there's already a pending request, return it immediately
+    if (this.pendingRerunRequest) {
+      const request = this.pendingRerunRequest;
+      this.pendingRerunRequest = null;
+      return request;
+    }
+
+    // Create a promise to wait for a rerun request
+    this.rerunPromise = new Promise((resolve) => {
+      this.rerunResolver = resolve;
+    });
+
+    // Race between rerun request and timeout
+    const timeoutPromise = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), timeoutMs);
+    });
+
+    const result = await Promise.race([this.rerunPromise, timeoutPromise]);
+
+    // Clear the pending request after returning it
+    if (result) {
+      this.pendingRerunRequest = null;
+    }
+
+    return result;
+  }
+
+  // Reset nodes for rerun
+  resetNodesForRerun(startNodeId: string, mode: 'single' | 'to-bottom'): string[] {
+    const nodeIds: string[] = [];
+
+    if (mode === 'single') {
+      // Only reset the specified node
+      const node = this.state.nodes.find(n => n.id === startNodeId);
+      if (node) {
+        node.status = 'pending';
+        node.output = undefined;
+        nodeIds.push(node.id);
+      }
+    } else {
+      // Reset from this node to the bottom
+      const startIndex = this.state.nodes.findIndex(n => n.id === startNodeId);
+      if (startIndex !== -1) {
+        for (let i = startIndex; i < this.state.nodes.length; i++) {
+          const node = this.state.nodes[i];
+          node.status = 'pending';
+          node.output = undefined;
+          nodeIds.push(node.id);
+        }
+      }
+    }
+
+    return nodeIds;
+  }
+
+  // Pause/Resume functionality
+  pause(): void {
+    this.isPaused = true;
+    if (this.state.plan) {
+      this.state.plan.status = 'paused';
+    }
+  }
+
+  resume(): void {
+    this.isPaused = false;
+    if (this.state.plan) {
+      this.state.plan.status = 'executing';
+    }
+    // Resolve any waiting pause promise
+    if (this.pauseResolver) {
+      this.pauseResolver();
+      this.pauseResolver = null;
+      this.pausePromise = null;
+    }
+  }
+
+  getIsPaused(): boolean {
+    return this.isPaused;
+  }
+
+  async waitIfPaused(): Promise<boolean> {
+    if (!this.isPaused) {
+      return false; // Not paused, continue immediately
+    }
+
+    // Create a promise to wait for resume
+    this.pausePromise = new Promise((resolve) => {
+      this.pauseResolver = resolve;
+    });
+
+    await this.pausePromise;
+    return true; // Was paused, now resumed
+  }
+
+  // Insert nodes functionality
+  insertNodes(
+    afterNodeId: string,
+    newNodes: PlanNode[],
+    newEdges: PlanEdge[]
+  ): { removedEdgeIds: string[] } {
+    // Find edges that go FROM the afterNode
+    const edgesToRemove = this.state.edges.filter(e => e.from === afterNodeId);
+    const removedEdgeIds = edgesToRemove.map(e => e.id);
+
+    // Get the target nodes that were connected to afterNode
+    const targetNodeIds = edgesToRemove.map(e => e.to);
+
+    // Remove the old edges
+    this.state.edges = this.state.edges.filter(e => e.from !== afterNodeId);
+
+    // Add the new nodes
+    this.state.nodes.push(...newNodes);
+
+    // Add the new edges (which should connect afterNode -> new nodes)
+    this.state.edges.push(...newEdges);
+
+    // Find the last new node(s) and connect them to the original targets
+    // This assumes the new edges define the internal structure,
+    // and we need to connect the "exit" nodes to the original targets
+    const newNodeIds = new Set(newNodes.map(n => n.id));
+    const exitNodeIds = newNodes
+      .filter(n => !newEdges.some(e => e.from === n.id && newNodeIds.has(e.to)))
+      .map(n => n.id);
+
+    // Connect exit nodes to original targets
+    let edgeCounter = Date.now();
+    for (const exitNodeId of exitNodeIds) {
+      for (const targetNodeId of targetNodeIds) {
+        this.state.edges.push({
+          id: `e_inserted_${edgeCounter++}`,
+          from: exitNodeId,
+          to: targetNodeId,
+        });
+      }
+    }
+
+    return { removedEdgeIds };
   }
 }
 

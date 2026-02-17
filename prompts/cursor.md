@@ -55,6 +55,7 @@ Each of these becomes a node on the visual canvas with full details.
 | `update_node_status` | `{ node_id, status, output? }` | Update execution progress |
 | `plan_completed` | `{}` | Mark plan done |
 | `plan_failed` | `{ error: string }` | Mark plan failed |
+| `check_rerun` | `{ timeout_ms? }` | Check if user wants to re-run nodes (call after plan_completed) |
 
 ---
 
@@ -234,6 +235,25 @@ When it's the last node:
   "isLastNode": true
 }
 ```
+
+### check_rerun (after plan_completed)
+```json
+{
+  "hasRerun": true,
+  "nodeId": "n3",
+  "mode": "single",  // or "to-bottom"
+  "nodeInfo": { ... },
+  "message": "Rerun requested from node n3 (single)"
+}
+```
+
+## Re-run Workflow
+
+After `plan_completed`, users can click nodes to re-run them:
+- **Single node** (play icon): Re-run just that node
+- **To bottom** (play + arrow): Re-run from that node to the end
+
+Loop on `check_rerun` after completion to handle user rerun requests.
 
 ---
 

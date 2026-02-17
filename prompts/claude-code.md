@@ -110,6 +110,7 @@ Each of these becomes a node on the visual canvas with full details, risks, and 
 | `update_node_status` | `{ node_id, status, output? }` | Update execution progress |
 | `plan_completed` | `{}` | Mark plan done |
 | `plan_failed` | `{ error: string }` | Mark plan failed |
+| `check_rerun` | `{ timeout_ms? }` | Check if user wants to re-run nodes (call after plan_completed) |
 
 ---
 
@@ -331,6 +332,39 @@ When it's the last node:
   "message": "Node n5 status updated to completed. This was the last node.",
   "isLastNode": true
 }
+```
+
+### check_rerun (after plan_completed)
+```json
+{
+  "hasRerun": true,
+  "nodeId": "n3",
+  "mode": "single",  // or "to-bottom"
+  "nodeInfo": { ... },
+  "message": "Rerun requested from node n3 (single)"
+}
+```
+
+## Re-run Workflow
+
+After `plan_completed`, users can click re-run buttons on any node:
+- **Play icon**: Re-run just that single node
+- **Play + down arrow**: Re-run from that node to the end of the plan
+
+This allows users to:
+1. Fix a failed node and re-run it
+2. Try an alternative branch after completing the initial branch
+3. Re-execute part of the plan with different inputs
+
+```
+1. Call plan_completed when done
+2. Loop: call check_rerun (with short timeout)
+   - If hasRerun is false, continue checking or exit
+   - If hasRerun is true:
+     a. Execute nodeInfo (same as normal node execution)
+     b. If mode is "to-bottom", continue to subsequent nodes
+     c. Call plan_completed again
+     d. Return to step 2
 ```
 
 ---

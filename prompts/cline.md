@@ -78,6 +78,7 @@ Use these tools via `use_mcp_tool` with server name `overture`:
 | `update_node_status` | `{ node_id, status, output? }` | Update execution progress |
 | `plan_completed` | `{}` | Mark plan done |
 | `plan_failed` | `{ error: string }` | Mark plan failed |
+| `check_rerun` | `{ timeout_ms? }` | Check if user wants to re-run nodes (call after plan_completed) |
 
 ---
 
@@ -230,6 +231,41 @@ When it's the last node:
   "message": "Node n5 status updated to completed. This was the last node.",
   "isLastNode": true
 }
+```
+
+### check_rerun (after plan_completed)
+```json
+{
+  "hasRerun": true,
+  "nodeId": "n3",
+  "mode": "single",  // or "to-bottom"
+  "nodeInfo": {
+    "id": "n3",
+    "title": "Alternative Implementation",
+    "type": "task",
+    "fieldValues": { ... },
+    "attachments": [ ... ],
+    "metaInstructions": "..."
+  },
+  "message": "Rerun requested from node n3 (single)"
+}
+```
+
+## Re-run Workflow
+
+After `plan_completed`, users can click nodes to re-run them:
+- **Single node**: Re-run just that node
+- **To bottom**: Re-run from that node to the end
+
+```
+1. Call plan_completed when done
+2. Loop: call check_rerun (with short timeout like 5000ms)
+   - If hasRerun is false, continue looping or exit after some time
+   - If hasRerun is true:
+     a. Execute the nodeInfo returned (same as normal execution)
+     b. If mode is "to-bottom", continue to subsequent nodes
+     c. Call plan_completed again when done
+     d. Return to step 2 to check for more reruns
 ```
 
 ---

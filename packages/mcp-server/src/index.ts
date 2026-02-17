@@ -15,6 +15,8 @@ import {
   handleUpdateNodeStatus,
   handlePlanCompleted,
   handlePlanFailed,
+  handleCheckRerun,
+  handleCheckPause,
 } from './tools/handlers.js';
 import { NodeStatus } from './types.js';
 
@@ -133,6 +135,34 @@ const TOOLS = [
       required: ['error'],
     },
   },
+  {
+    name: 'check_rerun',
+    description: 'Check if the user has requested to re-run any nodes. Call this after plan_completed to allow users to re-run specific nodes or re-run from a node to the end. Returns immediately if there\'s a pending request, otherwise waits briefly.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        timeout_ms: {
+          type: 'number',
+          description: 'How long to wait for a rerun request (default 5000ms)',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'check_pause',
+    description: 'Check if the user has paused execution. Call this before starting each node to respect user pause requests. If wait=true, blocks until the user resumes.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        wait: {
+          type: 'boolean',
+          description: 'If true, block until execution is resumed. If false, return immediately with current state.',
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 async function main() {
@@ -243,6 +273,32 @@ async function main() {
         case 'plan_failed': {
           const parsed = PlanFailedSchema.parse(args);
           const result = handlePlanFailed(parsed.error);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          };
+        }
+
+        case 'check_rerun': {
+          const timeoutMs = (args as { timeout_ms?: number }).timeout_ms || 5000;
+          const result = await handleCheckRerun(timeoutMs);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          };
+        }
+
+        case 'check_pause': {
+          const wait = (args as { wait?: boolean }).wait || false;
+          const result = await handleCheckPause(wait);
           return {
             content: [
               {

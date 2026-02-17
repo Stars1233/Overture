@@ -105,6 +105,34 @@ class WebSocketManager {
         console.error('[Overture] Plan cancelled by user');
         planStore.cancelApproval();
         break;
+
+      case 'rerun_request':
+        console.error(`[Overture] Rerun requested: node=${message.nodeId}, mode=${message.mode}`);
+        planStore.setRerunRequest(message.nodeId, message.mode);
+        break;
+
+      case 'pause_execution':
+        console.error('[Overture] Execution paused by user');
+        planStore.pause();
+        this.broadcast({ type: 'plan_paused' });
+        break;
+
+      case 'resume_execution':
+        console.error('[Overture] Execution resumed by user');
+        planStore.resume();
+        this.broadcast({ type: 'plan_resumed' });
+        break;
+
+      case 'insert_nodes':
+        console.error(`[Overture] Inserting ${message.nodes.length} node(s) after ${message.afterNodeId}`);
+        const result = planStore.insertNodes(message.afterNodeId, message.nodes, message.edges);
+        this.broadcast({
+          type: 'nodes_inserted',
+          nodes: message.nodes,
+          edges: message.edges,
+          removedEdgeIds: result.removedEdgeIds,
+        });
+        break;
     }
   }
 
