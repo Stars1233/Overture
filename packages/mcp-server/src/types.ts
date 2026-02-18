@@ -67,7 +67,7 @@ export interface PlanNode {
   output?: string;
   attachments?: FileAttachment[];
   metaInstructions?: string;
-  mcpServer?: McpServer;
+  mcpServers?: McpServer[];
 }
 
 export interface PlanEdge {
@@ -89,7 +89,7 @@ export interface NodeConfig {
   fieldValues: Record<string, string>;
   attachments: FileAttachment[];
   metaInstructions?: string;
-  mcpServer?: McpServer;
+  mcpServers?: McpServer[];
 }
 
 export interface PlanState {

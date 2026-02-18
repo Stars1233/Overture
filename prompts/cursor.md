@@ -180,7 +180,7 @@ When you receive a node (via `firstNode` from `get_approval` or `nextNode` from 
 - **CONSUME ALL** fields in `fieldValues` — every single one must be used
 - **READ AND USE ALL** files in `attachments` — do not ignore any attached file
 - **FOLLOW EXACTLY** the `metaInstructions` if present — these are user directives
-- **USE THE MCP SERVER** as specified in `mcpServer.formattedInstructions` if present
+- **USE THE MCP SERVER** as specified in `mcpServers.formattedInstructions` if present
 - **RESPECT** the node's `complexity`, `expectedOutput`, and `risks`
 
 ### DO NOT:
@@ -201,8 +201,8 @@ Each node is a contract. The user approved a specific plan with specific nodes. 
 ### Checklist Before Completing a Node
 
 Before calling `update_node_status(node_id, "completed", output)`, verify:
-- [ ] **Did I check for `mcpServer` FIRST?** (If present, did I install it if needed?)
-- [ ] **Did I USE the `mcpServer` tools** as specified in `formattedInstructions`? (if present)
+- [ ] **Did I check for `mcpServers` FIRST?** (If present, did I install it if needed?)
+- [ ] **Did I USE the `mcpServers` tools** as specified in `formattedInstructions`? (if present)
 - [ ] Did I implement ONLY what this node's description specified?
 - [ ] Did I use EVERY value in `fieldValues`?
 - [ ] Did I read and incorporate EVERY file in `attachments`?
@@ -225,9 +225,9 @@ Before calling `update_node_status(node_id, "completed", output)`, verify:
    a. Call update_node_status(node_id, "active")
 
    b. **FIRST: CHECK FOR MCP SERVER** ← THIS IS MANDATORY
-      - If node.mcpServer exists:
+      - If node.mcpServers exists:
         1. Check if MCP server is already installed/configured
-        2. If NOT installed: STOP and install it following mcpServer.readmeContent
+        2. If NOT installed: STOP and install it following mcpServers.readmeContent
         3. Verify installation by calling one of the MCP server's tools
         4. Only then proceed to use it for the node's task
 
@@ -235,7 +235,7 @@ Before calling `update_node_status(node_id, "completed", output)`, verify:
       - node.fieldValues (use ALL of them)
       - node.attachments (read and use ALL files)
       - node.metaInstructions (follow EXACTLY)
-      - node.mcpServer tools (if present, use as specified in formattedInstructions)
+      - node.mcpServers tools (if present, use as specified in formattedInstructions)
 
    d. Call update_node_status(node_id, "completed", output)
    e. Check response: if isPaused is true, call check_pause({ wait: true })
@@ -250,7 +250,7 @@ Before calling `update_node_status(node_id, "completed", output)`, verify:
 When you receive ANY node (firstNode or nextNode), your **FIRST ACTION** after marking it active must be:
 
 ```
-IF node.mcpServer EXISTS:
+IF node.mcpServers EXISTS:
   → STOP everything else
   → Try to use one of the MCP server's tools to check if it's installed
   → If you get "No connection found" or similar error:
@@ -259,7 +259,7 @@ IF node.mcpServer EXISTS:
       ║  DO NOT IGNORE THIS ERROR                                    ║
       ║  YOU MUST INSTALL THE MCP SERVER NOW                         ║
       ╚══════════════════════════════════════════════════════════════╝
-      1. Read mcpServer.readmeContent for installation instructions
+      1. Read mcpServers.readmeContent for installation instructions
       2. Install the MCP server (uvx, pip, docker, etc.)
       3. Configure it in the MCP settings file
       4. Retry the tool call to verify installation
@@ -277,7 +277,7 @@ Error executing MCP tool: No connection found for server: [server-name]
 
 You MUST:
 1. **STOP** - Do not continue with the node's task
-2. **INSTALL** - Follow the installation instructions in `mcpServer.readmeContent`
+2. **INSTALL** - Follow the installation instructions in `mcpServers.readmeContent`
 3. **CONFIGURE** - Add the server to the MCP settings file
 4. **VERIFY** - Call the tool again to confirm it works
 5. **THEN CONTINUE** - Only after successful verification, proceed with the node's task
@@ -298,7 +298,7 @@ You MUST:
     "fieldValues": { "api_key": "sk-..." },
     "attachments": [{ "path": "/path/to/file", "name": "spec.md", "type": "document" }],
     "metaInstructions": "Use TypeScript strict mode",
-    "mcpServer": { ... }
+    "mcpServers": { ... }
   },
   "message": "Plan approved by user. Execute firstNode, then call update_node_status to get the next node."
 }
@@ -393,7 +393,7 @@ All user modifications are returned to you when they approve.
 
 ## MCP Server Integration (CRITICAL)
 
-Users can attach **MCP servers** to individual nodes to extend your capabilities. When a node has an MCP server attached, the `nextNode` response will include an `mcpServer` object with a `formattedInstructions` field.
+Users can attach **MCP servers** to individual nodes to extend your capabilities. When a node has an MCP server attached, the `nextNode` response will include an `mcpServers` object with a `formattedInstructions` field.
 
 ### Example Response with MCP Server
 ```json
@@ -404,7 +404,7 @@ Users can attach **MCP servers** to individual nodes to extend your capabilities
     "title": "Generate product images",
     "fieldValues": { ... },
     "attachments": [],
-    "mcpServer": {
+    "mcpServers": {
       "name": "replicate-mcp",
       "author": "replicate",
       "description": "Generate images using Replicate AI models",
@@ -419,7 +419,7 @@ Users can attach **MCP servers** to individual nodes to extend your capabilities
 
 ### MANDATORY Requirements
 
-When `mcpServer` is present on a node:
+When `mcpServers` is present on a node:
 
 1. **YOU MUST** use the MCP server exactly as described by the user in `formattedInstructions`
 2. **YOU MUST** follow the user's intended usage precisely — they specified why they attached this MCP
@@ -427,7 +427,7 @@ When `mcpServer` is present on a node:
 
 ### Setup Instructions (When MCP Server Not Available)
 
-The `mcpServer.formattedInstructions` field now includes **provider-specific setup instructions** tailored for Cursor. Follow them exactly.
+The `mcpServers.formattedInstructions` field now includes **provider-specific setup instructions** tailored for Cursor. Follow them exactly.
 
 **Cursor MCP Configuration File Locations:**
 - **Project-level:** `.cursor/mcp.json` (in project root)
@@ -460,8 +460,8 @@ The `mcpServer.formattedInstructions` field now includes **provider-specific set
 ```
 1. Try to use the MCP server
 2. If you get "No connection found" error:
-   a. Read mcpServer.formattedInstructions for provider-specific setup
-   b. Read mcpServer.readmeContent for installation commands
+   a. Read mcpServers.formattedInstructions for provider-specific setup
+   b. Read mcpServers.readmeContent for installation commands
    c. Read existing MCP settings file (DO NOT OVERWRITE existing servers)
    d. Add the new server configuration
    e. Install dependencies (uvx, pip, etc.)
@@ -472,14 +472,14 @@ The `mcpServer.formattedInstructions` field now includes **provider-specific set
 
 ### Why This Matters
 
-Users attach MCP servers because they want specific capabilities for specific nodes. Ignoring this is equivalent to ignoring their explicit instructions. The `mcpServer` object contains everything you need:
+Users attach MCP servers because they want specific capabilities for specific nodes. Ignoring this is equivalent to ignoring their explicit instructions. The `mcpServers` object contains everything you need:
 - `name`, `author`, `description` — Server identification
 - `githubUrl` — Source repository for documentation
 - `readmeContent` — Installation and usage instructions
 - `requiresApiKey` — Whether API key configuration is needed
 - `formattedInstructions` — User's intended usage and critical compliance instructions
 
-**Always check for `mcpServer` on every node and honor its instructions.**
+**Always check for `mcpServers` on every node and honor its instructions.**
 
 ---
 
@@ -493,7 +493,7 @@ Users attach MCP servers because they want specific capabilities for specific no
 6. **Update frequently**: Call `update_node_status` so users see real-time progress
 7. **Honor meta instructions**: If a node has `metaInstructions`, follow them precisely
 8. **Use attachments**: If a node has file attachments, read and incorporate those files
-9. **Honor MCP servers**: When a node has `mcpServer`, follow its `formattedInstructions` precisely
+9. **Honor MCP servers**: When a node has `mcpServers`, follow its `formattedInstructions` precisely
 
 ---
 

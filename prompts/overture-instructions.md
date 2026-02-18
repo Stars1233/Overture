@@ -265,13 +265,13 @@ For each node, you MUST implement/consume ALL of the following:
 - ✅ `description` - Full task description
 - ✅ `instructions` - Detailed implementation instructions
 - ✅ `fieldValues` - All dynamic field values provided by user
-- ✅ `mcpServer` - **CRITICAL**: If present, MUST be installed and used
+- ✅ `mcpServers` - **CRITICAL**: If present, MUST be installed and used
 - ✅ `attachments` - All attached files/resources
 - ✅ `expected_output` - What the node should produce
 - ✅ `metadata` - Any additional metadata
 
 ### Rule 3: MCP Server Integration
-If a node has an `mcpServer` attached:
+If a node has an `mcpServers` attached:
 1. **CHECK** if the MCP server is already installed
 2. **INSTALL** the MCP server if not available (see setup instructions below)
 3. **USE** the MCP server tools as specified in the node

@@ -16,7 +16,7 @@ export interface NextNodeInfo {
   fieldValues: Record<string, string>;
   attachments: { path: string; name: string; type: string }[];
   metaInstructions?: string;
-  mcpServer?: McpServer & { formattedInstructions?: string };
+  mcpServers?: (McpServer & { formattedInstructions?: string })[];
 }
 
 /**
@@ -183,14 +183,11 @@ The server name to use: ${configServerName}
 }
 
 /**
- * Format MCP server info with mandatory usage instructions
+ * Format a single MCP server info with mandatory usage instructions
  */
-function formatMcpServerWithInstructions(mcpServer: McpServer | undefined, provider?: string): (McpServer & { formattedInstructions?: string }) | undefined {
-  if (!mcpServer) return undefined;
-
+function formatSingleMcpServer(mcpServer: McpServer, provider: string): McpServer & { formattedInstructions: string } {
   const usageDesc = (mcpServer as McpServer & { usageDescription?: string }).usageDescription || '';
-  const agentProvider = provider || 'unknown';
-  const providerSetupInstructions = getProviderMcpSetupInstructions(agentProvider, mcpServer.mcpId || mcpServer.name);
+  const providerSetupInstructions = getProviderMcpSetupInstructions(provider, mcpServer.mcpId || mcpServer.name);
 
   const formattedInstructions = `
 === MCP SERVER INTEGRATION ===
@@ -219,6 +216,16 @@ ${'='.repeat(50)}
     ...mcpServer,
     formattedInstructions,
   };
+}
+
+/**
+ * Format MCP servers array with mandatory usage instructions
+ */
+function formatMcpServersWithInstructions(mcpServers: McpServer[] | undefined, provider?: string): (McpServer & { formattedInstructions?: string })[] | undefined {
+  if (!mcpServers || mcpServers.length === 0) return undefined;
+
+  const agentProvider = provider || 'unknown';
+  return mcpServers.map(mcpServer => formatSingleMcpServer(mcpServer, agentProvider));
 }
 
 /**
@@ -375,7 +382,7 @@ export async function handleGetApproval(): Promise<{
         fieldValues: config.fieldValues || {},
         attachments: config.attachments || [],
         metaInstructions: config.metaInstructions,
-        mcpServer: formatMcpServerWithInstructions(config.mcpServer, provider),
+        mcpServers: formatMcpServersWithInstructions(config.mcpServers, provider),
       };
     }
 
@@ -542,7 +549,7 @@ function findNextNode(
       fieldValues: config.fieldValues || {},
       attachments: config.attachments || [],
       metaInstructions: config.metaInstructions,
-      mcpServer: formatMcpServerWithInstructions(config.mcpServer, provider),
+      mcpServers: formatMcpServersWithInstructions(config.mcpServers, provider),
     };
   }
 
@@ -630,7 +637,7 @@ export async function handleCheckRerun(timeoutMs: number = 5000): Promise<{
       fieldValues: config.fieldValues || {},
       attachments: config.attachments || [],
       metaInstructions: config.metaInstructions,
-      mcpServer: formatMcpServerWithInstructions(config.mcpServer, provider),
+      mcpServers: formatMcpServersWithInstructions(config.mcpServers, provider),
     };
   }
 
