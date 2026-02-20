@@ -526,7 +526,8 @@ export async function handleCheckPause(
 
 /**
  * Update the status of a node during execution
- * When a node is completed, returns the next node's information including user inputs
+ * When status is 'active', returns full node details including user inputs
+ * When status is 'completed', returns the next node's information including user inputs
  * Also returns isPaused if the user has paused execution
  */
 export function handleUpdateNodeStatus(
@@ -537,6 +538,7 @@ export function handleUpdateNodeStatus(
 ): {
   success: boolean;
   message: string;
+  currentNode?: NextNodeInfo;
   nextNode?: NextNodeInfo;
   isLastNode?: boolean;
   isPaused?: boolean;
@@ -547,6 +549,7 @@ export function handleUpdateNodeStatus(
   const provider = plan?.agent || 'unknown';
   const nodes = multiProjectPlanStore.getNodes(effectiveProjectId);
   const edges = multiProjectPlanStore.getEdges(effectiveProjectId);
+  const nodeConfigs = multiProjectPlanStore.getNodeConfigs(effectiveProjectId);
   const node = nodes.find((n) => n.id === nodeId);
 
   if (!node) {
@@ -558,6 +561,29 @@ export function handleUpdateNodeStatus(
 
   // Check if execution is paused
   const isPaused = multiProjectPlanStore.getIsPaused(effectiveProjectId);
+
+  // If status is 'active', return full details about the current node
+  if (status === 'active') {
+    const config = nodeConfigs[nodeId] || { fieldValues: {}, attachments: [] };
+    const currentNodeInfo: NextNodeInfo = {
+      id: node.id,
+      title: node.title,
+      type: node.type,
+      description: node.description,
+      fieldValues: config.fieldValues || {},
+      attachments: config.attachments || [],
+      metaInstructions: config.metaInstructions,
+      mcpServers: formatMcpServersWithInstructions(config.mcpServers, provider),
+    };
+
+    return {
+      success: true,
+      message: `Node ${nodeId} status updated to ${status}. Execute this node now.`,
+      currentNode: currentNodeInfo,
+      isPaused,
+      projectId: effectiveProjectId,
+    };
+  }
 
   // If status is 'completed', find and return the next node's info
   if (status === 'completed') {
