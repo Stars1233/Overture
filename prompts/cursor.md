@@ -49,14 +49,81 @@ Each of these becomes a node on the visual canvas with full details.
 
 | Tool | Input | Purpose |
 |------|-------|---------|
-| `submit_plan` | `{ plan_xml: string }` | Submit complete XML plan |
-| `stream_plan_chunk` | `{ xml_chunk: string }` | Stream XML incrementally |
-| `get_approval` | `{}` | Wait for user approval (may return "pending" — call again) |
-| `update_node_status` | `{ node_id, status, output? }` | Update execution progress |
-| `plan_completed` | `{}` | Mark plan done |
-| `plan_failed` | `{ error: string }` | Mark plan failed |
-| `check_rerun` | `{ timeout_ms? }` | Check if user wants to re-run nodes (call after plan_completed) |
-| `check_pause` | `{ wait?: boolean }` | Check if user paused execution (call before each node) |
+| `submit_plan` | `{ plan_xml, workspace_path?, agent_type? }` | Submit complete XML plan |
+| `stream_plan_chunk` | `{ xml_chunk, workspace_path?, agent_type? }` | Stream XML incrementally |
+| `get_approval` | `{ project_id? }` | Wait for user approval (may return "pending" — call again) |
+| `update_node_status` | `{ node_id, status, output?, project_id? }` | Update execution progress |
+| `plan_completed` | `{ project_id? }` | Mark plan done |
+| `plan_failed` | `{ error, project_id? }` | Mark plan failed |
+| `check_rerun` | `{ timeout_ms?, project_id? }` | Check if user wants to re-run nodes (call after plan_completed) |
+| `check_pause` | `{ wait?, project_id? }` | Check if user paused execution (call before each node) |
+| `get_resume_info` | `{ project_id? }` | Get state info for resuming a paused/failed plan |
+| `request_plan_update` | `{ operations, project_id? }` | Apply incremental updates to the plan (insert, delete, replace) |
+| `create_new_plan` | `{ project_id? }` | Signal you're creating a new unrelated plan (adds alongside existing) |
+
+### Multi-Project Support
+
+Overture supports multiple projects running simultaneously. Each project gets its own tab in the UI.
+
+- **`workspace_path`**: Pass the absolute path to your project directory when calling `submit_plan` or `stream_plan_chunk`. This enables project isolation and history tracking.
+- **`agent_type`**: Identify yourself (e.g., "cursor") so the UI shows the correct agent name.
+- **`project_id`**: Returned in responses after submitting a plan. Use it in subsequent calls to target the correct project.
+
+If you don't pass `workspace_path`, Overture uses a default project which works fine for single-project scenarios.
+
+### Updating an Existing Plan
+
+When the user requests changes to an existing plan, use `request_plan_update` with an array of operations:
+
+**Supported operations:**
+- `insert_after` - Insert a node after a reference node
+- `insert_before` - Insert a node before a reference node
+- `delete` - Delete a node (edges auto-reconnect)
+- `replace` - Replace a node's content in-place
+
+**Example:**
+```json
+request_plan_update({
+  "operations": [
+    {
+      "op": "insert_after",
+      "reference_node_id": "node_api",
+      "node": {
+        "id": "node_test",
+        "type": "task",
+        "title": "Run unit tests",
+        "description": "Execute test suite"
+      }
+    },
+    { "op": "delete", "node_id": "node_deploy" },
+    {
+      "op": "replace",
+      "node_id": "node_5",
+      "node": { "title": "Updated title", "description": "Updated description" }
+    }
+  ]
+})
+```
+
+After calling `request_plan_update`, call `get_approval()` to confirm changes.
+
+### Creating a New Unrelated Plan
+
+If the user asks for something completely unrelated to the current plan (e.g., "forget that, let's build X instead"):
+
+1. **Call `create_new_plan`** — This clears the current plan state
+2. **Call `submit_plan` or `stream_plan_chunk`** with the new plan XML
+3. **Call `get_approval`** to wait for user approval
+4. Proceed with execution once approved
+
+**Example workflow:**
+```
+1. User: "Actually, let's work on the authentication system instead"
+2. You call: create_new_plan({ project_id })
+3. You call: submit_plan({ plan_xml: "<new auth system plan>" })
+4. You call: get_approval({ project_id })
+5. Execute nodes as normal
+```
 
 ---
 
@@ -365,6 +432,69 @@ After completing a node:
   "isPaused": true
 }
 ```
+
+---
+
+## Resume Plan Workflow
+
+When a plan was paused, failed, or loaded from history, use `get_resume_info` to understand where execution stopped and continue from there.
+
+### get_resume_info Response
+```json
+{
+  "success": true,
+  "resumeInfo": {
+    "planId": "plan_123",
+    "planTitle": "Build Authentication System",
+    "agent": "cursor",
+    "status": "paused",
+    "projectId": "abc123",
+    "workspacePath": "/Users/dev/my-project",
+
+    "currentNodeId": "n3",
+    "currentNodeTitle": "Configure Database",
+    "currentNodeStatus": "active",
+
+    "completedNodes": [
+      { "id": "n1", "title": "Initialize Project", "output": "Created package.json..." },
+      { "id": "n2", "title": "Install Dependencies", "output": "Installed 15 packages" }
+    ],
+    "pendingNodes": [
+      { "id": "n4", "title": "Create User Model", "description": "Define user schema..." },
+      { "id": "n5", "title": "Implement Auth Routes", "description": "Create login/signup..." }
+    ],
+    "failedNodes": [],
+
+    "fieldValues": { "n3.database_url": "postgres://..." },
+    "selectedBranches": { "n2": "branch_prisma" },
+    "nodeConfigs": { ... },
+
+    "createdAt": "2024-01-15T10:30:00Z",
+    "pausedAt": "2024-01-15T11:45:00Z"
+  },
+  "message": "Resume info retrieved. Plan is at status 'paused'. Current node: Configure Database (active). Completed: 2, Pending: 2, Failed: 0"
+}
+```
+
+### Resume Workflow
+
+```
+1. Call get_resume_info to understand the current state
+2. Identify the current node (resumeInfo.currentNodeId)
+3. If currentNodeStatus is "active" or "failed":
+   - Resume execution from that node
+   - Use the fieldValues, selectedBranches, and nodeConfigs
+4. Call update_node_status to continue the normal execution flow
+5. Proceed with subsequent nodes until isLastNode is true
+6. Call plan_completed when done
+```
+
+### When to Use get_resume_info
+
+- After a plan was **paused** by the user and you need to resume
+- After a plan **failed** and you want to retry from the failed node
+- When loading a plan from **history** to continue where it left off
+- When you lose context and need to understand the current execution state
 
 ---
 

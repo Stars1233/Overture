@@ -8,6 +8,7 @@ import { z } from 'zod';
 import open from 'open';
 import { wsManager } from './websocket/ws-server.js';
 import { startHttpServer } from './http/server.js';
+import { historyStorage } from './storage/history-storage.js';
 import {
   handleStreamPlanChunk,
   handleSubmitPlan,
@@ -17,6 +18,9 @@ import {
   handlePlanFailed,
   handleCheckRerun,
   handleCheckPause,
+  handleGetResumeInfo,
+  handleRequestPlanUpdate,
+  handleCreateNewPlan,
 } from './tools/handlers.js';
 import { NodeStatus } from './types.js';
 
@@ -28,10 +32,18 @@ const AUTO_OPEN_BROWSER = process.env.OVERTURE_AUTO_OPEN !== 'false';
 // Tool schemas
 const StreamPlanChunkSchema = z.object({
   xml_chunk: z.string().describe('A chunk of the plan XML to process'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory'),
+  agent_type: z.string().optional().describe('The type of agent (claude-code, cline, cursor, sixth)'),
 });
 
 const SubmitPlanSchema = z.object({
   plan_xml: z.string().describe('The complete plan XML'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory'),
+  agent_type: z.string().optional().describe('The type of agent (claude-code, cline, cursor, sixth)'),
+});
+
+const GetApprovalSchema = z.object({
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
 });
 
 const UpdateNodeStatusSchema = z.object({
@@ -40,10 +52,81 @@ const UpdateNodeStatusSchema = z.object({
     .enum(['pending', 'active', 'completed', 'failed', 'skipped'])
     .describe('The new status of the node'),
   output: z.string().optional().describe('Optional output/result from the node execution'),
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+});
+
+const PlanCompletedSchema = z.object({
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
 });
 
 const PlanFailedSchema = z.object({
   error: z.string().describe('The error message'),
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+});
+
+const CheckRerunSchema = z.object({
+  timeout_ms: z.number().optional().describe('How long to wait for a rerun request (default 5000ms)'),
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+});
+
+const CheckPauseSchema = z.object({
+  wait: z.boolean().optional().describe('If true, block until execution is resumed. If false, return immediately.'),
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+});
+
+const GetResumeInfoSchema = z.object({
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+});
+
+// Schema for node data used in operations
+const NodeDataSchema = z.object({
+  id: z.string().describe('Unique ID for the node'),
+  type: z.enum(['task', 'decision']).describe('Node type'),
+  title: z.string().describe('Node title'),
+  description: z.string().describe('Node description'),
+  complexity: z.enum(['low', 'medium', 'high']).optional().describe('Task complexity'),
+  expectedOutput: z.string().optional().describe('Expected output description'),
+  risks: z.string().optional().describe('Potential risks'),
+});
+
+// Schema for plan update operations
+const PlanOperationSchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('insert_after'),
+    reference_node_id: z.string().describe('Node ID to insert after'),
+    node: NodeDataSchema,
+  }),
+  z.object({
+    op: z.literal('insert_before'),
+    reference_node_id: z.string().describe('Node ID to insert before'),
+    node: NodeDataSchema,
+  }),
+  z.object({
+    op: z.literal('delete'),
+    node_id: z.string().describe('Node ID to delete'),
+  }),
+  z.object({
+    op: z.literal('replace'),
+    node_id: z.string().describe('Node ID to replace'),
+    node: z.object({
+      id: z.string().optional().describe('New ID (optional)'),
+      type: z.enum(['task', 'decision']).optional(),
+      title: z.string().describe('New title'),
+      description: z.string().describe('New description'),
+      complexity: z.enum(['low', 'medium', 'high']).optional(),
+      expectedOutput: z.string().optional(),
+      risks: z.string().optional(),
+    }),
+  }),
+]);
+
+const RequestPlanUpdateSchema = z.object({
+  operations: z.array(PlanOperationSchema).describe('Array of operations to apply to the plan (insert_after, insert_before, delete, replace)'),
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+});
+
+const CreateNewPlanSchema = z.object({
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
 });
 
 // Tool definitions
@@ -58,6 +141,14 @@ const TOOLS = [
         xml_chunk: {
           type: 'string',
           description: 'A chunk of the plan XML to process',
+        },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used to identify the project for multi-project support.',
+        },
+        agent_type: {
+          type: 'string',
+          description: 'The type of agent (claude-code, cline, cursor, sixth)',
         },
       },
       required: ['xml_chunk'],
@@ -74,6 +165,14 @@ const TOOLS = [
           type: 'string',
           description: 'The complete plan XML',
         },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used to identify the project for multi-project support.',
+        },
+        agent_type: {
+          type: 'string',
+          description: 'The type of agent (claude-code, cline, cursor, sixth)',
+        },
       },
       required: ['plan_xml'],
     },
@@ -84,7 +183,12 @@ const TOOLS = [
       'Wait for user approval of the plan in the Overture UI. Returns status: "approved" (with field values and selected branches), "cancelled" (user rejected), or "pending" (still waiting). If status is "pending", call this tool again to continue waiting - the user may need up to 15-30 minutes to review and customize the plan.',
     inputSchema: {
       type: 'object' as const,
-      properties: {},
+      properties: {
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
+      },
       required: [],
     },
   },
@@ -108,6 +212,10 @@ const TOOLS = [
           type: 'string',
           description: 'Optional output/result from the node execution',
         },
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
       },
       required: ['node_id', 'status'],
     },
@@ -117,7 +225,12 @@ const TOOLS = [
     description: 'Mark the plan as successfully completed. Call this after all nodes have been executed.',
     inputSchema: {
       type: 'object' as const,
-      properties: {},
+      properties: {
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
+      },
       required: [],
     },
   },
@@ -130,6 +243,10 @@ const TOOLS = [
         error: {
           type: 'string',
           description: 'The error message',
+        },
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
         },
       },
       required: ['error'],
@@ -145,6 +262,10 @@ const TOOLS = [
           type: 'number',
           description: 'How long to wait for a rerun request (default 5000ms)',
         },
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
       },
       required: [],
     },
@@ -159,6 +280,132 @@ const TOOLS = [
           type: 'boolean',
           description: 'If true, block until execution is resumed. If false, return immediately with current state.',
         },
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_resume_info',
+    description: 'Get detailed information about a paused or failed plan to help resume execution. Returns the current node where execution stopped, list of completed/pending/failed nodes, user-configured field values, selected branches, and other metadata. Use this when resuming a plan that was paused, failed, or loaded from history.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'request_plan_update',
+    description: 'Update an existing plan with incremental operations. Pass an array of operations to insert, delete, or replace nodes. Operations are applied in order with smooth animations. After calling this, call get_approval to confirm changes with the user.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        operations: {
+          type: 'array',
+          description: 'Array of operations to apply to the plan',
+          items: {
+            type: 'object',
+            oneOf: [
+              {
+                type: 'object',
+                properties: {
+                  op: { type: 'string', enum: ['insert_after'], description: 'Insert a node after the reference node' },
+                  reference_node_id: { type: 'string', description: 'Node ID to insert after' },
+                  node: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      type: { type: 'string', enum: ['task', 'decision'] },
+                      title: { type: 'string' },
+                      description: { type: 'string' },
+                      complexity: { type: 'string', enum: ['low', 'medium', 'high'] },
+                      expectedOutput: { type: 'string' },
+                      risks: { type: 'string' },
+                    },
+                    required: ['id', 'type', 'title', 'description'],
+                  },
+                },
+                required: ['op', 'reference_node_id', 'node'],
+              },
+              {
+                type: 'object',
+                properties: {
+                  op: { type: 'string', enum: ['insert_before'], description: 'Insert a node before the reference node' },
+                  reference_node_id: { type: 'string', description: 'Node ID to insert before' },
+                  node: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      type: { type: 'string', enum: ['task', 'decision'] },
+                      title: { type: 'string' },
+                      description: { type: 'string' },
+                      complexity: { type: 'string', enum: ['low', 'medium', 'high'] },
+                      expectedOutput: { type: 'string' },
+                      risks: { type: 'string' },
+                    },
+                    required: ['id', 'type', 'title', 'description'],
+                  },
+                },
+                required: ['op', 'reference_node_id', 'node'],
+              },
+              {
+                type: 'object',
+                properties: {
+                  op: { type: 'string', enum: ['delete'], description: 'Delete a node (edges auto-reconnect)' },
+                  node_id: { type: 'string', description: 'Node ID to delete' },
+                },
+                required: ['op', 'node_id'],
+              },
+              {
+                type: 'object',
+                properties: {
+                  op: { type: 'string', enum: ['replace'], description: 'Replace a node\'s content in-place' },
+                  node_id: { type: 'string', description: 'Node ID to replace' },
+                  node: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      type: { type: 'string', enum: ['task', 'decision'] },
+                      title: { type: 'string' },
+                      description: { type: 'string' },
+                      complexity: { type: 'string', enum: ['low', 'medium', 'high'] },
+                      expectedOutput: { type: 'string' },
+                      risks: { type: 'string' },
+                    },
+                    required: ['title', 'description'],
+                  },
+                },
+                required: ['op', 'node_id', 'node'],
+              },
+            ],
+          },
+        },
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
+      },
+      required: ['operations'],
+    },
+  },
+  {
+    name: 'create_new_plan',
+    description: 'Signal that you are creating a completely new, unrelated plan. Call this BEFORE submitting a new plan when the user asks for something unrelated to the current plan (e.g., "let\'s work on something else", "forget that, build X instead"). The new plan will be added alongside existing plans (Figma-style artboards). After calling this, submit the new plan using submit_plan or stream_plan_chunk, then call get_approval.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
       },
       required: [],
     },
@@ -166,6 +413,9 @@ const TOOLS = [
 ];
 
 async function main() {
+  // Initialize history storage (creates file if it doesn't exist)
+  await historyStorage.initialize();
+
   // Start HTTP server for the UI
   startHttpServer(HTTP_PORT);
 
@@ -205,7 +455,7 @@ async function main() {
       switch (name) {
         case 'stream_plan_chunk': {
           const parsed = StreamPlanChunkSchema.parse(args);
-          const result = handleStreamPlanChunk(parsed.xml_chunk);
+          const result = handleStreamPlanChunk(parsed.xml_chunk, parsed.workspace_path, parsed.agent_type);
           return {
             content: [
               {
@@ -218,7 +468,7 @@ async function main() {
 
         case 'submit_plan': {
           const parsed = SubmitPlanSchema.parse(args);
-          const result = handleSubmitPlan(parsed.plan_xml);
+          const result = handleSubmitPlan(parsed.plan_xml, parsed.workspace_path, parsed.agent_type);
           return {
             content: [
               {
@@ -230,7 +480,8 @@ async function main() {
         }
 
         case 'get_approval': {
-          const result = await handleGetApproval();
+          const parsed = GetApprovalSchema.parse(args);
+          const result = await handleGetApproval(parsed.project_id);
           return {
             content: [
               {
@@ -246,7 +497,8 @@ async function main() {
           const result = handleUpdateNodeStatus(
             parsed.node_id,
             parsed.status as NodeStatus,
-            parsed.output
+            parsed.output,
+            parsed.project_id
           );
           return {
             content: [
@@ -259,7 +511,8 @@ async function main() {
         }
 
         case 'plan_completed': {
-          const result = handlePlanCompleted();
+          const parsed = PlanCompletedSchema.parse(args);
+          const result = handlePlanCompleted(parsed.project_id);
           return {
             content: [
               {
@@ -272,7 +525,7 @@ async function main() {
 
         case 'plan_failed': {
           const parsed = PlanFailedSchema.parse(args);
-          const result = handlePlanFailed(parsed.error);
+          const result = handlePlanFailed(parsed.error, parsed.project_id);
           return {
             content: [
               {
@@ -284,8 +537,8 @@ async function main() {
         }
 
         case 'check_rerun': {
-          const timeoutMs = (args as { timeout_ms?: number }).timeout_ms || 5000;
-          const result = await handleCheckRerun(timeoutMs);
+          const parsed = CheckRerunSchema.parse(args);
+          const result = await handleCheckRerun(parsed.timeout_ms || 5000, parsed.project_id);
           return {
             content: [
               {
@@ -297,8 +550,47 @@ async function main() {
         }
 
         case 'check_pause': {
-          const wait = (args as { wait?: boolean }).wait || false;
-          const result = await handleCheckPause(wait);
+          const parsed = CheckPauseSchema.parse(args);
+          const result = await handleCheckPause(parsed.wait || false, parsed.project_id);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          };
+        }
+
+        case 'get_resume_info': {
+          const parsed = GetResumeInfoSchema.parse(args);
+          const result = handleGetResumeInfo(parsed.project_id);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          };
+        }
+
+        case 'request_plan_update': {
+          const parsed = RequestPlanUpdateSchema.parse(args);
+          const result = handleRequestPlanUpdate(parsed.operations, parsed.project_id);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          };
+        }
+
+        case 'create_new_plan': {
+          const parsed = CreateNewPlanSchema.parse(args);
+          const result = handleCreateNewPlan(parsed.project_id);
           return {
             content: [
               {

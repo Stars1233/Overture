@@ -1,9 +1,22 @@
+import { createHash } from 'crypto';
+import path from 'path';
 import { StreamingXMLParser } from '../parser/xml-parser.js';
-import { planStore } from '../store/plan-store.js';
+import { planStore, multiProjectPlanStore } from '../store/plan-store.js';
 import { wsManager } from '../websocket/ws-server.js';
-import { Plan, NodeStatus, McpServer } from '../types.js';
+import { Plan, PlanNode, PlanEdge, NodeStatus, McpServer, ProjectContext, ResumePlanInfo } from '../types.js';
 
-let currentParser: StreamingXMLParser | null = null;
+// Track parsers per project
+const currentParsers: Map<string, StreamingXMLParser> = new Map();
+
+// Track current project context for legacy single-project calls
+let currentProjectId: string = 'default';
+
+/**
+ * Generate a project ID from workspace path
+ */
+function generateProjectId(workspacePath: string): string {
+  return createHash('sha256').update(workspacePath).digest('hex').substring(0, 12);
+}
 
 /**
  * Information about the next node to execute, including user inputs
@@ -231,64 +244,93 @@ function formatMcpServersWithInstructions(mcpServers: McpServer[] | undefined, p
 /**
  * Handle streaming plan chunks from the AI agent
  */
-export function handleStreamPlanChunk(xmlChunk: string): { success: boolean; message: string } {
+export function handleStreamPlanChunk(
+  xmlChunk: string,
+  workspacePath?: string,
+  agentType?: string
+): { success: boolean; message: string; projectId?: string } {
+  // Determine project context
+  const effectivePath = workspacePath || process.cwd();
+  const projectId = workspacePath ? generateProjectId(effectivePath) : currentProjectId;
+  currentProjectId = projectId;
+
   // Initialize parser if needed
-  if (!currentParser) {
-    currentParser = new StreamingXMLParser((event) => {
+  if (!currentParsers.has(projectId)) {
+    const parser = new StreamingXMLParser((event) => {
       switch (event.type) {
         case 'plan':
           const plan: Plan = {
             id: event.plan.id || `plan_${Date.now()}`,
             title: event.plan.title || 'Untitled Plan',
-            agent: event.plan.agent || 'unknown',
+            agent: event.plan.agent || agentType || 'unknown',
             createdAt: new Date().toISOString(),
             status: 'streaming',
           };
-          planStore.startPlan(plan);
-          wsManager.broadcast({ type: 'plan_started', plan });
+
+          // Initialize project and start plan
+          multiProjectPlanStore.initializeProject({
+            projectId,
+            workspacePath: effectivePath,
+            projectName: path.basename(effectivePath),
+            agentType: plan.agent
+          });
+          multiProjectPlanStore.startPlan(projectId, plan);
+          wsManager.broadcastToProject(projectId, { type: 'plan_started', plan, projectId });
           break;
 
         case 'node':
-          planStore.addNode(event.node);
-          wsManager.broadcast({ type: 'node_added', node: event.node });
+          multiProjectPlanStore.addNode(projectId, event.node);
+          wsManager.broadcastToProject(projectId, { type: 'node_added', node: event.node, projectId });
           break;
 
         case 'edge':
-          planStore.addEdge(event.edge);
-          wsManager.broadcast({ type: 'edge_added', edge: event.edge });
+          multiProjectPlanStore.addEdge(projectId, event.edge);
+          wsManager.broadcastToProject(projectId, { type: 'edge_added', edge: event.edge, projectId });
           break;
 
         case 'complete':
-          planStore.updatePlanStatus('ready');
-          wsManager.broadcast({ type: 'plan_ready' });
-          currentParser = null;
+          multiProjectPlanStore.updatePlanStatus(projectId, 'ready');
+          wsManager.broadcastToProject(projectId, { type: 'plan_ready', projectId });
+          currentParsers.delete(projectId);
           break;
 
         case 'error':
           console.error('[Overture] XML parse error:', event.error);
-          wsManager.broadcast({ type: 'error', message: event.error.message });
+          wsManager.broadcastToProject(projectId, { type: 'error', message: event.error.message });
           break;
       }
     });
+    currentParsers.set(projectId, parser);
   }
 
   try {
-    currentParser.write(xmlChunk);
-    return { success: true, message: 'Chunk processed' };
+    const parser = currentParsers.get(projectId)!;
+    parser.write(xmlChunk);
+    return { success: true, message: 'Chunk processed', projectId };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return { success: false, message };
+    return { success: false, message, projectId };
   }
 }
 
 /**
  * Submit a complete plan XML at once
  */
-export function handleSubmitPlan(planXml: string): { success: boolean; message: string } {
-  // Reset any existing parser for a fresh plan
-  currentParser = null;
+export function handleSubmitPlan(
+  planXml: string,
+  workspacePath?: string,
+  agentType?: string
+): { success: boolean; message: string; projectId?: string } {
+  // Determine project context
+  const effectivePath = workspacePath || process.cwd();
+  const projectId = workspacePath ? generateProjectId(effectivePath) : 'default';
+  currentProjectId = projectId;
+
+  // Clear any existing parser for this project
+  currentParsers.delete(projectId);
 
   console.error('[Overture] submit_plan called, XML length:', planXml.length);
+  console.error('[Overture] Project:', projectId, 'Path:', effectivePath);
   console.error('[Overture] Connected clients:', wsManager.getClientCount());
 
   const parser = new StreamingXMLParser((event) => {
@@ -297,36 +339,54 @@ export function handleSubmitPlan(planXml: string): { success: boolean; message: 
         const plan: Plan = {
           id: event.plan.id || `plan_${Date.now()}`,
           title: event.plan.title || 'Untitled Plan',
-          agent: event.plan.agent || 'unknown',
+          agent: event.plan.agent || agentType || 'unknown',
           createdAt: new Date().toISOString(),
           status: 'streaming',
         };
-        console.error('[Overture] Broadcasting plan_started:', plan.title);
-        planStore.startPlan(plan);
-        wsManager.broadcast({ type: 'plan_started', plan });
+
+        // Initialize project and start plan
+        const projectContext: ProjectContext = {
+          projectId,
+          workspacePath: effectivePath,
+          projectName: path.basename(effectivePath),
+          agentType: plan.agent
+        };
+        multiProjectPlanStore.initializeProject(projectContext);
+        multiProjectPlanStore.startPlan(projectId, plan);
+
+        console.error('[Overture] Broadcasting plan_started:', plan.title, 'to project:', projectId);
+        wsManager.broadcastToProject(projectId, { type: 'plan_started', plan, projectId });
+
+        // Also broadcast project registration for UI tab
+        wsManager.broadcastAll({
+          type: 'project_registered',
+          projectId,
+          projectName: projectContext.projectName,
+          workspacePath: projectContext.workspacePath
+        });
         break;
 
       case 'node':
         console.error('[Overture] Broadcasting node_added:', event.node.id);
-        planStore.addNode(event.node);
-        wsManager.broadcast({ type: 'node_added', node: event.node });
+        multiProjectPlanStore.addNode(projectId, event.node);
+        wsManager.broadcastToProject(projectId, { type: 'node_added', node: event.node, projectId });
         break;
 
       case 'edge':
         console.error('[Overture] Broadcasting edge_added:', event.edge.id);
-        planStore.addEdge(event.edge);
-        wsManager.broadcast({ type: 'edge_added', edge: event.edge });
+        multiProjectPlanStore.addEdge(projectId, event.edge);
+        wsManager.broadcastToProject(projectId, { type: 'edge_added', edge: event.edge, projectId });
         break;
 
       case 'complete':
         console.error('[Overture] Broadcasting plan_ready');
-        planStore.updatePlanStatus('ready');
-        wsManager.broadcast({ type: 'plan_ready' });
+        multiProjectPlanStore.updatePlanStatus(projectId, 'ready');
+        wsManager.broadcastToProject(projectId, { type: 'plan_ready', projectId });
         break;
 
       case 'error':
         console.error('[Overture] XML parse error:', event.error);
-        wsManager.broadcast({ type: 'error', message: event.error.message });
+        wsManager.broadcastToProject(projectId, { type: 'error', message: event.error.message });
         break;
     }
   });
@@ -334,12 +394,14 @@ export function handleSubmitPlan(planXml: string): { success: boolean; message: 
   try {
     parser.write(planXml);
     parser.close();
-    console.error('[Overture] Plan parsing complete. Nodes:', planStore.getNodes().length, 'Edges:', planStore.getEdges().length);
-    return { success: true, message: 'Plan submitted successfully' };
+    const nodes = multiProjectPlanStore.getNodes(projectId);
+    const edges = multiProjectPlanStore.getEdges(projectId);
+    console.error('[Overture] Plan parsing complete. Nodes:', nodes.length, 'Edges:', edges.length);
+    return { success: true, message: 'Plan submitted successfully', projectId };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('[Overture] Plan parsing failed:', message);
-    return { success: false, message };
+    return { success: false, message, projectId };
   }
 }
 
@@ -350,23 +412,31 @@ export function handleSubmitPlan(planXml: string): { success: boolean; message: 
  * When approved, includes the first node's information to start execution
  * Each subsequent node's info is returned by update_node_status when the previous node completes
  */
-export async function handleGetApproval(): Promise<{
+export async function handleGetApproval(projectId?: string): Promise<{
   status: 'approved' | 'cancelled' | 'pending';
   firstNode?: NextNodeInfo;
   message: string;
+  projectId?: string;
 }> {
+  const effectiveProjectId = projectId || currentProjectId;
+
+  console.error(`[Overture] get_approval called for project: ${effectiveProjectId}`);
+  console.error(`[Overture] Current plan status:`, multiProjectPlanStore.getPlan(effectiveProjectId)?.status);
+
   // Wait up to 60 seconds before returning 'pending'
-  const result = await planStore.waitForApproval(60000);
+  const result = await multiProjectPlanStore.waitForApproval(effectiveProjectId, 60000);
+
+  console.error(`[Overture] waitForApproval returned: ${result}`);
 
   if (result === 'approved') {
-    planStore.updatePlanStatus('executing');
+    multiProjectPlanStore.updatePlanStatus(effectiveProjectId, 'executing');
 
     // Find the first node (node with no incoming edges)
-    const plan = planStore.getPlan();
+    const plan = multiProjectPlanStore.getPlan(effectiveProjectId);
     const provider = plan?.agent || 'unknown';
-    const nodes = planStore.getNodes();
-    const edges = planStore.getEdges();
-    const nodeConfigs = planStore.getNodeConfigs();
+    const nodes = multiProjectPlanStore.getNodes(effectiveProjectId);
+    const edges = multiProjectPlanStore.getEdges(effectiveProjectId);
+    const nodeConfigs = multiProjectPlanStore.getNodeConfigs(effectiveProjectId);
 
     const nodesWithIncomingEdges = new Set(edges.map(e => e.to));
     const firstNode = nodes.find(n => !nodesWithIncomingEdges.has(n.id));
@@ -390,6 +460,7 @@ export async function handleGetApproval(): Promise<{
       status: 'approved',
       firstNode: firstNodeInfo,
       message: 'Plan approved by user. Execute firstNode, then call update_node_status to get the next node.',
+      projectId: effectiveProjectId,
     };
   }
 
@@ -397,6 +468,7 @@ export async function handleGetApproval(): Promise<{
     return {
       status: 'cancelled',
       message: 'Plan cancelled by user',
+      projectId: effectiveProjectId,
     };
   }
 
@@ -404,24 +476,31 @@ export async function handleGetApproval(): Promise<{
   return {
     status: 'pending',
     message: 'Waiting for user approval. Call get_approval again to continue waiting.',
+    projectId: effectiveProjectId,
   };
 }
 
 /**
  * Check if execution is paused, and optionally wait for resume
  */
-export async function handleCheckPause(wait: boolean = false): Promise<{
+export async function handleCheckPause(
+  wait: boolean = false,
+  projectId?: string
+): Promise<{
   isPaused: boolean;
   wasResumed: boolean;
   message: string;
+  projectId?: string;
 }> {
-  const isPaused = planStore.getIsPaused();
+  const effectiveProjectId = projectId || currentProjectId;
+  const isPaused = multiProjectPlanStore.getIsPaused(effectiveProjectId);
 
   if (!isPaused) {
     return {
       isPaused: false,
       wasResumed: false,
       message: 'Execution is not paused',
+      projectId: effectiveProjectId,
     };
   }
 
@@ -430,16 +509,18 @@ export async function handleCheckPause(wait: boolean = false): Promise<{
       isPaused: true,
       wasResumed: false,
       message: 'Execution is paused. Call with wait=true to block until resumed.',
+      projectId: effectiveProjectId,
     };
   }
 
   // Wait for resume
-  await planStore.waitIfPaused();
+  await multiProjectPlanStore.waitIfPaused(effectiveProjectId);
 
   return {
     isPaused: false,
     wasResumed: true,
     message: 'Execution was paused and has now been resumed',
+    projectId: effectiveProjectId,
   };
 }
 
@@ -451,33 +532,36 @@ export async function handleCheckPause(wait: boolean = false): Promise<{
 export function handleUpdateNodeStatus(
   nodeId: string,
   status: NodeStatus,
-  output?: string
+  output?: string,
+  projectId?: string
 ): {
   success: boolean;
   message: string;
   nextNode?: NextNodeInfo;
   isLastNode?: boolean;
   isPaused?: boolean;
+  projectId?: string;
 } {
-  const plan = planStore.getPlan();
+  const effectiveProjectId = projectId || currentProjectId;
+  const plan = multiProjectPlanStore.getPlan(effectiveProjectId);
   const provider = plan?.agent || 'unknown';
-  const nodes = planStore.getNodes();
-  const edges = planStore.getEdges();
+  const nodes = multiProjectPlanStore.getNodes(effectiveProjectId);
+  const edges = multiProjectPlanStore.getEdges(effectiveProjectId);
   const node = nodes.find((n) => n.id === nodeId);
 
   if (!node) {
-    return { success: false, message: `Node ${nodeId} not found` };
+    return { success: false, message: `Node ${nodeId} not found`, projectId: effectiveProjectId };
   }
 
-  planStore.updateNodeStatus(nodeId, status, output);
-  wsManager.broadcast({ type: 'node_status_updated', nodeId, status, output });
+  multiProjectPlanStore.updateNodeStatus(effectiveProjectId, nodeId, status, output);
+  wsManager.broadcastToProject(effectiveProjectId, { type: 'node_status_updated', nodeId, status, output, projectId: effectiveProjectId });
 
   // Check if execution is paused
-  const isPaused = planStore.getIsPaused();
+  const isPaused = multiProjectPlanStore.getIsPaused(effectiveProjectId);
 
   // If status is 'completed', find and return the next node's info
   if (status === 'completed') {
-    const nextNodeInfo = findNextNode(nodeId, nodes, edges, provider);
+    const nextNodeInfo = findNextNode(effectiveProjectId, nodeId, nodes, edges, provider);
 
     if (nextNodeInfo) {
       return {
@@ -485,6 +569,7 @@ export function handleUpdateNodeStatus(
         message: `Node ${nodeId} status updated to ${status}`,
         nextNode: nextNodeInfo,
         isPaused,
+        projectId: effectiveProjectId,
       };
     } else {
       // No next node - this was the last one
@@ -493,6 +578,7 @@ export function handleUpdateNodeStatus(
         message: `Node ${nodeId} status updated to ${status}. This was the last node.`,
         isLastNode: true,
         isPaused,
+        projectId: effectiveProjectId,
       };
     }
   }
@@ -501,6 +587,7 @@ export function handleUpdateNodeStatus(
     success: true,
     message: `Node ${nodeId} status updated to ${status}`,
     isPaused,
+    projectId: effectiveProjectId,
   };
 }
 
@@ -508,13 +595,14 @@ export function handleUpdateNodeStatus(
  * Find the next executable node based on edges and branch selections
  */
 function findNextNode(
+  projectId: string,
   currentNodeId: string,
-  nodes: ReturnType<typeof planStore.getNodes>,
-  edges: ReturnType<typeof planStore.getEdges>,
+  nodes: ReturnType<typeof multiProjectPlanStore.getNodes>,
+  edges: ReturnType<typeof multiProjectPlanStore.getEdges>,
   provider: string
 ): NextNodeInfo | null {
-  const selectedBranches = planStore.getSelectedBranches();
-  const nodeConfigs = planStore.getNodeConfigs();
+  const selectedBranches = multiProjectPlanStore.getSelectedBranches(projectId);
+  const nodeConfigs = multiProjectPlanStore.getNodeConfigs(projectId);
 
   // Find edges going out from the current node
   const outgoingEdges = edges.filter(e => e.from === currentNodeId);
@@ -559,7 +647,7 @@ function findNextNode(
     const skippedNode = nodes.find(n => n.id === edge.to);
     if (skippedNode) {
       // Recursively find the next node after this skipped one
-      const nextAfterSkipped = findNextNode(skippedNode.id, nodes, edges, provider);
+      const nextAfterSkipped = findNextNode(projectId, skippedNode.id, nodes, edges, provider);
       if (nextAfterSkipped) {
         return nextAfterSkipped;
       }
@@ -572,58 +660,66 @@ function findNextNode(
 /**
  * Mark the plan as completed
  */
-export function handlePlanCompleted(): { success: boolean; message: string } {
-  planStore.updatePlanStatus('completed');
-  wsManager.broadcast({ type: 'plan_completed' });
-  return { success: true, message: 'Plan completed' };
+export function handlePlanCompleted(projectId?: string): { success: boolean; message: string; projectId?: string } {
+  const effectiveProjectId = projectId || currentProjectId;
+  multiProjectPlanStore.updatePlanStatus(effectiveProjectId, 'completed');
+  wsManager.broadcastToProject(effectiveProjectId, { type: 'plan_completed', projectId: effectiveProjectId });
+  return { success: true, message: 'Plan completed', projectId: effectiveProjectId };
 }
 
 /**
  * Mark the plan as failed
  */
-export function handlePlanFailed(error: string): { success: boolean; message: string } {
-  planStore.updatePlanStatus('failed');
-  wsManager.broadcast({ type: 'plan_failed', error });
-  return { success: true, message: 'Plan failed' };
+export function handlePlanFailed(error: string, projectId?: string): { success: boolean; message: string; projectId?: string } {
+  const effectiveProjectId = projectId || currentProjectId;
+  multiProjectPlanStore.updatePlanStatus(effectiveProjectId, 'failed');
+  wsManager.broadcastToProject(effectiveProjectId, { type: 'plan_failed', error, projectId: effectiveProjectId });
+  return { success: true, message: 'Plan failed', projectId: effectiveProjectId };
 }
 
 /**
  * Check for pending rerun requests from the user
  * Returns immediately if there's a pending request, otherwise waits up to timeout
  */
-export async function handleCheckRerun(timeoutMs: number = 5000): Promise<{
+export async function handleCheckRerun(
+  timeoutMs: number = 5000,
+  projectId?: string
+): Promise<{
   hasRerun: boolean;
   nodeId?: string;
   mode?: 'single' | 'to-bottom';
   nodeInfo?: NextNodeInfo;
   message: string;
+  projectId?: string;
 }> {
-  const rerunRequest = await planStore.waitForRerun(timeoutMs);
+  const effectiveProjectId = projectId || currentProjectId;
+  const rerunRequest = await multiProjectPlanStore.waitForRerun(effectiveProjectId, timeoutMs);
 
   if (!rerunRequest) {
     return {
       hasRerun: false,
       message: 'No rerun request pending',
+      projectId: effectiveProjectId,
     };
   }
 
   // Reset the nodes that need to be rerun
-  const resetNodeIds = planStore.resetNodesForRerun(rerunRequest.nodeId, rerunRequest.mode);
+  const resetNodeIds = multiProjectPlanStore.resetNodesForRerun(effectiveProjectId, rerunRequest.nodeId, rerunRequest.mode);
 
   // Broadcast node status updates
   for (const nodeId of resetNodeIds) {
-    wsManager.broadcast({ type: 'node_status_updated', nodeId, status: 'pending' });
+    wsManager.broadcastToProject(effectiveProjectId, { type: 'node_status_updated', nodeId, status: 'pending', projectId: effectiveProjectId });
   }
 
   // Update plan status back to executing
-  planStore.updatePlanStatus('executing');
-  const plan = planStore.getPlan();
+  multiProjectPlanStore.updatePlanStatus(effectiveProjectId, 'executing');
+  const plan = multiProjectPlanStore.getPlan(effectiveProjectId);
   const provider = plan?.agent || 'unknown';
-  wsManager.broadcast({ type: 'plan_started', plan: plan! });
+  wsManager.broadcastToProject(effectiveProjectId, { type: 'plan_started', plan: plan!, projectId: effectiveProjectId });
 
   // Get the node info for the rerun start node
-  const nodes = planStore.getNodes();
-  const nodeConfigs = planStore.getNodeConfigs();
+  const nodes = multiProjectPlanStore.getNodes(effectiveProjectId);
+  const nodeConfigs = multiProjectPlanStore.getNodeConfigs(effectiveProjectId);
   const startNode = nodes.find(n => n.id === rerunRequest.nodeId);
 
   let nodeInfo: NextNodeInfo | undefined;
@@ -647,5 +743,366 @@ export async function handleCheckRerun(timeoutMs: number = 5000): Promise<{
     mode: rerunRequest.mode,
     nodeInfo,
     message: `Rerun requested from node ${rerunRequest.nodeId} (${rerunRequest.mode})`,
+    projectId: effectiveProjectId,
   };
 }
+
+/**
+ * Get resume information for a paused or failed plan
+ * Returns detailed state information to help the agent continue execution
+ */
+export function handleGetResumeInfo(projectId?: string): {
+  success: boolean;
+  resumeInfo?: ResumePlanInfo;
+  message: string;
+  projectId?: string;
+} {
+  const effectiveProjectId = projectId || currentProjectId;
+  const resumeInfo = multiProjectPlanStore.getResumeInfo(effectiveProjectId);
+
+  if (!resumeInfo) {
+    return {
+      success: false,
+      message: `No active plan found for project: ${effectiveProjectId}`,
+      projectId: effectiveProjectId,
+    };
+  }
+
+  return {
+    success: true,
+    resumeInfo,
+    message: `Resume info retrieved. Plan is at status '${resumeInfo.status}'. ${
+      resumeInfo.currentNodeId
+        ? `Current node: ${resumeInfo.currentNodeTitle} (${resumeInfo.currentNodeStatus})`
+        : 'No current node.'
+    } Completed: ${resumeInfo.completedNodes.length}, Pending: ${resumeInfo.pendingNodes.length}, Failed: ${resumeInfo.failedNodes.length}`,
+    projectId: effectiveProjectId,
+  };
+}
+
+// Types for plan update operations
+export type PlanOperation =
+  | { op: 'insert_after'; reference_node_id: string; node: NodeData }
+  | { op: 'insert_before'; reference_node_id: string; node: NodeData }
+  | { op: 'delete'; node_id: string }
+  | { op: 'replace'; node_id: string; node: Partial<NodeData> & { title: string; description: string } };
+
+export interface NodeData {
+  id: string;
+  type: 'task' | 'decision';
+  title: string;
+  description: string;
+  complexity?: 'low' | 'medium' | 'high';
+  expectedOutput?: string;
+  risks?: string;
+}
+
+/**
+ * Update an existing plan with incremental operations
+ * Accepts an array of operations (insert_after, insert_before, delete, replace)
+ * and applies them in order with smooth animations
+ */
+export function handleRequestPlanUpdate(
+  operations: PlanOperation[],
+  projectId?: string
+): {
+  success: boolean;
+  message: string;
+  results: Array<{ op: string; success: boolean; message: string }>;
+  projectId?: string;
+} {
+  const effectiveProjectId = projectId || currentProjectId;
+
+  const currentPlan = multiProjectPlanStore.getPlan(effectiveProjectId);
+  if (!currentPlan) {
+    return {
+      success: false,
+      message: `No active plan found for project: ${effectiveProjectId}. Submit a new plan instead.`,
+      results: [],
+      projectId: effectiveProjectId,
+    };
+  }
+
+  // Store previous state for potential diff view
+  multiProjectPlanStore.storePreviousPlanState(effectiveProjectId);
+
+  console.error(`[Overture] Processing ${operations.length} plan update operations for project: ${effectiveProjectId}`);
+
+  const results: Array<{ op: string; success: boolean; message: string }> = [];
+
+  // Process each operation in order
+  for (const operation of operations) {
+    try {
+      switch (operation.op) {
+        case 'insert_after':
+        case 'insert_before': {
+          const position = operation.op === 'insert_after' ? 'after' : 'before';
+          const result = applyInsertOperation(
+            effectiveProjectId,
+            operation.reference_node_id,
+            position,
+            operation.node
+          );
+          results.push({ op: operation.op, ...result });
+          break;
+        }
+        case 'delete': {
+          const result = applyDeleteOperation(effectiveProjectId, operation.node_id);
+          results.push({ op: 'delete', ...result });
+          break;
+        }
+        case 'replace': {
+          const result = applyReplaceOperation(effectiveProjectId, operation.node_id, operation.node);
+          results.push({ op: 'replace', ...result });
+          break;
+        }
+        default:
+          results.push({ op: 'unknown', success: false, message: 'Unknown operation type' });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      results.push({ op: (operation as any).op || 'unknown', success: false, message });
+    }
+  }
+
+  const successCount = results.filter(r => r.success).length;
+  const failCount = results.length - successCount;
+
+  // Broadcast that the plan was updated
+  wsManager.broadcastToProject(effectiveProjectId, {
+    type: 'plan_updated_incrementally',
+    operationCount: operations.length,
+    successCount,
+    failCount,
+    projectId: effectiveProjectId,
+  });
+
+  console.error(`[Overture] Plan update complete: ${successCount} succeeded, ${failCount} failed`);
+
+  return {
+    success: failCount === 0,
+    message: `Applied ${successCount}/${operations.length} operations. ${failCount > 0 ? 'Some operations failed.' : 'All operations succeeded.'} Call get_approval to confirm changes with user.`,
+    results,
+    projectId: effectiveProjectId,
+  };
+}
+
+/**
+ * Apply an insert operation (insert_after or insert_before)
+ */
+function applyInsertOperation(
+  projectId: string,
+  referenceNodeId: string,
+  position: 'after' | 'before',
+  nodeData: NodeData
+): { success: boolean; message: string } {
+  const nodes = multiProjectPlanStore.getNodes(projectId);
+  const edges = multiProjectPlanStore.getEdges(projectId);
+
+  // Find the reference node
+  const refNode = nodes.find(n => n.id === referenceNodeId);
+  if (!refNode) {
+    return { success: false, message: `Reference node ${referenceNodeId} not found` };
+  }
+
+  // Create the new node
+  const newNode: PlanNode = {
+    id: nodeData.id,
+    type: nodeData.type,
+    title: nodeData.title,
+    description: nodeData.description,
+    complexity: nodeData.complexity,
+    expectedOutput: nodeData.expectedOutput,
+    risks: nodeData.risks,
+    status: 'pending',
+    dynamicFields: [],
+    attachments: [],
+  };
+
+  if (position === 'after') {
+    // Insert node between reference and its targets
+    const edgeToNewNode: PlanEdge = { id: `e_${referenceNodeId}_${nodeData.id}`, from: referenceNodeId, to: nodeData.id };
+    const result = multiProjectPlanStore.insertNodes(
+      projectId,
+      referenceNodeId,
+      [newNode],
+      [edgeToNewNode]
+    );
+
+    // Broadcast the change - include BOTH the edge to the new node AND reconnection edges
+    const allNewEdges = [edgeToNewNode, ...result.reconnectionEdges];
+    wsManager.broadcastToProject(projectId, {
+      type: 'nodes_inserted',
+      nodes: [newNode],
+      edges: allNewEdges,
+      removedEdgeIds: result.removedEdgeIds,
+      projectId,
+    });
+  } else {
+    // Insert before: find edges coming into reference node
+    const incomingEdges = edges.filter(e => e.to === referenceNodeId);
+
+    if (incomingEdges.length === 0) {
+      // Reference node is a root node - just add the new node before it
+      multiProjectPlanStore.addNode(projectId, newNode);
+      const newEdge: PlanEdge = { id: `e_${nodeData.id}_${referenceNodeId}`, from: nodeData.id, to: referenceNodeId };
+      multiProjectPlanStore.addEdge(projectId, newEdge);
+
+      wsManager.broadcastToProject(projectId, { type: 'node_added', node: newNode, projectId });
+      wsManager.broadcastToProject(projectId, { type: 'edge_added', edge: newEdge, projectId });
+    } else {
+      // Insert between the incoming node(s) and reference node
+      const firstIncoming = incomingEdges[0];
+
+      // Add new node
+      multiProjectPlanStore.addNode(projectId, newNode);
+      wsManager.broadcastToProject(projectId, { type: 'node_added', node: newNode, projectId });
+
+      // Rewire edges: incoming -> newNode -> reference
+      for (const edge of incomingEdges) {
+        const state = multiProjectPlanStore.getState(projectId);
+        if (state) {
+          const edgeIndex = state.edges.findIndex(e => e.id === edge.id);
+          if (edgeIndex >= 0) {
+            state.edges.splice(edgeIndex, 1);
+          }
+        }
+      }
+
+      // Add new edges
+      const edgeToNew: PlanEdge = { id: `e_${firstIncoming.from}_${nodeData.id}`, from: firstIncoming.from, to: nodeData.id };
+      const edgeToRef: PlanEdge = { id: `e_${nodeData.id}_${referenceNodeId}`, from: nodeData.id, to: referenceNodeId };
+      multiProjectPlanStore.addEdge(projectId, edgeToNew);
+      multiProjectPlanStore.addEdge(projectId, edgeToRef);
+
+      wsManager.broadcastToProject(projectId, { type: 'edge_added', edge: edgeToNew, projectId });
+      wsManager.broadcastToProject(projectId, { type: 'edge_added', edge: edgeToRef, projectId });
+    }
+  }
+
+  console.error(`[Overture] Node ${nodeData.id} inserted ${position} ${referenceNodeId}`);
+  return { success: true, message: `Node "${nodeData.title}" inserted ${position} node ${referenceNodeId}` };
+}
+
+/**
+ * Apply a delete operation
+ */
+function applyDeleteOperation(
+  projectId: string,
+  nodeId: string
+): { success: boolean; message: string } {
+  const nodes = multiProjectPlanStore.getNodes(projectId);
+  const node = nodes.find(n => n.id === nodeId);
+
+  if (!node) {
+    return { success: false, message: `Node ${nodeId} not found` };
+  }
+
+  // Remove the node (edges are automatically reconnected)
+  const result = multiProjectPlanStore.removeNode(projectId, nodeId);
+
+  // Broadcast the change
+  wsManager.broadcastToProject(projectId, {
+    type: 'node_removed',
+    nodeId,
+    newEdges: result.newEdges,
+    removedEdgeIds: result.removedEdgeIds,
+    projectId,
+  });
+
+  console.error(`[Overture] Node ${nodeId} deleted from plan`);
+  return { success: true, message: `Node "${node.title}" deleted from plan` };
+}
+
+/**
+ * Apply a replace operation
+ */
+function applyReplaceOperation(
+  projectId: string,
+  nodeId: string,
+  newNodeData: Partial<NodeData> & { title: string; description: string }
+): { success: boolean; message: string } {
+  const state = multiProjectPlanStore.getState(projectId);
+
+  if (!state) {
+    return { success: false, message: `No plan found for project ${projectId}` };
+  }
+
+  const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
+  if (nodeIndex < 0) {
+    return { success: false, message: `Node ${nodeId} not found` };
+  }
+
+  const oldNode = state.nodes[nodeIndex];
+
+  // Update the node in place
+  const updatedNode: PlanNode = {
+    ...oldNode,
+    id: newNodeData.id || oldNode.id,
+    type: newNodeData.type || oldNode.type,
+    title: newNodeData.title,
+    description: newNodeData.description,
+    complexity: newNodeData.complexity || oldNode.complexity,
+    expectedOutput: newNodeData.expectedOutput || oldNode.expectedOutput,
+    risks: newNodeData.risks || oldNode.risks,
+  };
+
+  state.nodes[nodeIndex] = updatedNode;
+
+  // If the ID changed, update all edges
+  if (newNodeData.id && newNodeData.id !== oldNode.id) {
+    for (const edge of state.edges) {
+      if (edge.from === oldNode.id) {
+        edge.from = newNodeData.id;
+      }
+      if (edge.to === oldNode.id) {
+        edge.to = newNodeData.id;
+      }
+    }
+  }
+
+  // Broadcast the node replacement
+  wsManager.broadcastToProject(projectId, {
+    type: 'node_replaced',
+    oldNodeId: nodeId,
+    node: updatedNode,
+    projectId,
+  });
+
+  console.error(`[Overture] Node ${nodeId} replaced with new content`);
+  return { success: true, message: `Node "${oldNode.title}" replaced with "${updatedNode.title}"` };
+}
+
+/**
+ * Signal that a new, unrelated plan is being created
+ * Call this BEFORE submitting a new plan
+ * NOTE: This does NOT clear existing plans - new plans are added alongside existing ones (Figma-style)
+ */
+export function handleCreateNewPlan(projectId?: string): {
+  success: boolean;
+  message: string;
+  projectId?: string;
+} {
+  const effectiveProjectId = projectId || currentProjectId;
+
+  // IMPORTANT: Do NOT clear existing plans!
+  // New plans are added alongside existing ones (Figma-style artboards)
+  // The frontend handles displaying multiple plans on the same canvas
+
+  // Notify UI that a new plan is coming (but keep existing plans)
+  wsManager.broadcastToProject(effectiveProjectId, {
+    type: 'new_plan_created',
+    planId: '',
+    projectId: effectiveProjectId,
+  });
+
+  console.error(`[Overture] New plan requested for project: ${effectiveProjectId}`);
+  console.error(`[Overture] Existing plans preserved. New plan will be added alongside them.`);
+
+  return {
+    success: true,
+    message: `Ready to receive new plan. Submit the new plan using submit_plan or stream_plan_chunk, then call get_approval to wait for user approval. Note: Existing plans will be preserved on the canvas.`,
+    projectId: effectiveProjectId,
+  };
+}
+
