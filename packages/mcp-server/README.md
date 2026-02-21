@@ -1,34 +1,21 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/SixHq/Overture/main/assets/logo.png" alt="Overture Logo" width="120" />
-</p>
+<div align="center">
 
-<h1 align="center">Overture</h1>
+<img src="https://raw.githubusercontent.com/SixHq/Overture/main/assets/logo.png" alt="Overture" width="140" />
 
-<p align="center">
-  <strong>See what your AI is thinking — before it writes a single line of code.</strong>
-</p>
+# Overture
 
-<p align="center">
-  <a href="https://www.npmjs.com/package/overture-mcp"><img src="https://img.shields.io/npm/v/overture-mcp.svg?style=flat-square&color=00C7B7" alt="npm version" /></a>
-  <a href="https://github.com/SixHq/Overture/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="license" /></a>
-  <a href="https://github.com/SixHq/Overture/stargazers"><img src="https://img.shields.io/github/stars/SixHq/Overture?style=flat-square&color=yellow" alt="stars" /></a>
-  <a href="https://github.com/SixHq/Overture/issues"><img src="https://img.shields.io/github/issues/SixHq/Overture?style=flat-square" alt="issues" /></a>
-</p>
+### See What Your AI Is Thinking — Before It Writes a Single Line of Code
 
-<p align="center">
-  <a href="#-the-problem">Problem</a> •
-  <a href="#-the-solution">Solution</a> •
-  <a href="#-features">Features</a> •
-  <a href="#-installation">Installation</a> •
-  <a href="#-how-it-works">How It Works</a> •
-  <a href="#-roadmap">Roadmap</a>
-</p>
+[![npm version](https://img.shields.io/npm/v/overture-mcp?style=for-the-badge&color=00C7B7&labelColor=000000)](https://www.npmjs.com/package/overture-mcp)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge&labelColor=000000)](https://github.com/SixHq/Overture/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/SixHq/Overture?style=for-the-badge&color=yellow&labelColor=000000)](https://github.com/SixHq/Overture/stargazers)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge&labelColor=000000)](https://github.com/SixHq/Overture/pulls)
 
 <br />
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/SixHq/Overture/main/assets/demo.gif" alt="Overture Demo" width="800" />
-</p>
+**Stop flying blind with AI agents. Visualize, customize, and approve every step.**
+
+[Quick Start](#-quick-start) · [Features](#-features) · [Demo](#-see-it-in-action) · [Docs](#-how-it-works) · [Roadmap](#-roadmap)
 
 <br />
 
@@ -36,213 +23,389 @@
 
 <br />
 
-## 🎯 The Problem
+</div>
 
-Every AI coding agent today — **Cursor, Claude Code, Cline, Copilot** — shares the same fundamental flaw:
+## 🎬 See It In Action
 
-> You type a prompt. The agent starts working. You have **zero visibility** into what it plans to do until code starts appearing.
+<div align="center">
 
-By the time you realize the agent went in the wrong direction, it has already written **200+ lines of code** you need to throw away.
+<img src="https://raw.githubusercontent.com/SixHq/Overture/main/assets/demo.gif" alt="Overture Demo" width="100%" />
 
-### The Black Box Problem
+<br />
+<br />
+
+<img src="https://raw.githubusercontent.com/SixHq/Overture/main/assets/screenshot.png" alt="Overture Plan Canvas" width="100%" />
+
+<sub>A completed plan in Overture — every node visible, every decision tracked, full context attached.</sub>
+
+</div>
+
+<br />
+
+---
+
+<br />
+
+## 😤 The Problem
+
+You know this frustration:
+
 ```
-You: "Build me a landing page with auth"
-Agent: *writes 500 lines*
-You: "Wait, I wanted OAuth, not email/password..."
-Agent: *deletes everything, starts over*
-💸 Tokens wasted. ⏰ Time lost. 😤 Frustration mounting.
+You:    "Build me a landing page with authentication"
+
+Agent:  *silently writes 500 lines of code*
+
+You:    "Wait... I wanted OAuth, not email/password"
+
+Agent:  *deletes everything, starts over*
 ```
 
-### The Chat Log Problem
-Some agents show plans as text. But text plans are **fundamentally broken** for complex projects:
-- Plans branch, converge, and have dependencies — text is linear
-- No way to attach context (files, API keys, docs) to specific steps
-- Can't explore alternatives without rewriting everything
+**Every AI coding agent today is a black box.**
+
+- Cursor, Claude Code, Cline, Copilot — they all work the same way
+- You type a prompt → agent starts coding → you pray it understood you
+- By the time you see the output, it's already built the wrong thing
+- Wasted tokens. Wasted time. Wasted patience.
+
+<br />
+
+### Why Text Plans Don't Work
+
+Some agents show "plans" in chat. But software isn't linear:
+
+| Text Plans | Reality |
+|------------|---------|
+| Step 1 → Step 2 → Step 3 | Steps branch, converge, and depend on each other |
+| "Set up database" | Which database? What schema? What credentials? |
+| No way to add context | You can't attach files, API keys, or docs to specific steps |
+| All or nothing | Can't approve some steps while modifying others |
+
+<br />
+
+---
 
 <br />
 
 ## 💡 The Solution
 
-**Overture makes the invisible visible.**
+<div align="center">
 
-It's a visual canvas that intercepts your AI agent's planning phase and renders it as an **interactive, editable flowchart** — before any code is written.
+### Overture makes the invisible visible.
 
-<p align="center">
-  <img src="https://firebasestorage.googleapis.com/v0/b/sixth-v2.appspot.com/o/Screenshot%202026-02-21%20at%207.37.40%E2%80%AFAM.png?alt=media&token=13b29c30-dd91-4f26-bd35-0b87b5d23b6d" alt="Overture Canvas" width="800" />
-</p>
+</div>
 
-**Think FigJam meets AI agent planning.**
+<br />
 
-You see every step. You approve the approach. You attach context. You watch it execute in real-time. You stay in control.
+Overture intercepts your AI agent's planning phase and renders it as an **interactive visual flowchart** — before any code is written.
+
+<br />
+
+<table>
+<tr>
+<td width="50%">
+
+### Before Overture
+- Hope the agent understood you
+- Watch code appear line by line
+- Realize it went wrong 200 lines in
+- Start over
+
+</td>
+<td width="50%">
+
+### With Overture
+- See the complete plan as a graph
+- Click any node for full details
+- Attach files, docs, API keys per step
+- Approve only what you want built
+
+</td>
+</tr>
+</table>
+
+<br />
+
+> **Think FigJam meets AI agent planning.**
+
+<br />
+
+---
+
+<br />
+
+## 🚀 Quick Start
+
+Get Overture running in 30 seconds. Works with **any MCP-compatible agent**.
+
+<br />
+
+<details open>
+<summary><b>Claude Code</b></summary>
+
+```bash
+claude mcp add overture-mcp -- npx overture-mcp
+```
+
+</details>
+
+<details>
+<summary><b>Cursor</b></summary>
+
+Add to `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "overture": {
+      "command": "npx",
+      "args": ["overture-mcp"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><b>Cline (VS Code)</b></summary>
+
+Add to your Cline MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "overture": {
+      "command": "npx",
+      "args": ["overture-mcp"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><b>Global Installation</b></summary>
+
+```bash
+npm install -g overture-mcp
+```
+
+Then use `overture-mcp` instead of `npx overture-mcp` in your config.
+
+</details>
+
+<br />
+
+That's it. Next time your agent plans something, Overture opens automatically at `http://localhost:3031`
+
+<br />
+
+---
 
 <br />
 
 ## ✨ Features
 
-### 🗺️ Interactive Plan Canvas
-Your agent's plan rendered as a beautiful, explorable graph. Pan, zoom, search, rearrange. Not a static diagram — a living document.
+<br />
 
-### 🔀 Branching & Decision Nodes
-When multiple approaches exist, see them all. Compare "Use Stripe Checkout" vs "Use Stripe Elements" vs "Use LemonSqueezy" — then pick your path.
-
-### 📎 Rich Context Attachment
-Drag files, docs, images, and API keys directly onto nodes. The agent gets exactly what it needs for each step — no more mid-execution "what's your API key?" interruptions.
-
-### 🧠 Dynamic AI-Generated Fields
-The agent analyzes each step and generates the exact input fields needed. Database node? Here's a field for your connection string. Deployment node? Here's where your Vercel token goes.
-
-### ⚡ Real-Time Execution Tracking
-Watch your plan come to life:
-- **Active nodes** pulse with progress
-- **Completed nodes** glow green
-- **Failed nodes** show errors with retry options
-- Live logs stream at the bottom
-
-### 🎨 Stunning Dark UI
-We didn't build "another Mermaid diagram renderer." We built something you'll want to screenshot and share. Glassmorphism, neon accents, smooth animations — inspired by Linear, Raycast, and Vercel.
+<table>
+<tr>
+<td align="center" width="33%">
+<br />
+<h3>🗺️</h3>
+<h4>Interactive Canvas</h4>
+<p>Your agent's plan as a beautiful, explorable graph. Pan, zoom, search, rearrange. A living document, not a static diagram.</p>
+</td>
+<td align="center" width="33%">
+<br />
+<h3>🔀</h3>
+<h4>Branching Decisions</h4>
+<p>When multiple approaches exist, see them all. Compare alternatives side-by-side. Pick your path with full context.</p>
+</td>
+<td align="center" width="33%">
+<br />
+<h3>📎</h3>
+<h4>Rich Context</h4>
+<p>Attach files, docs, images, and API keys to specific nodes. The agent gets exactly what it needs for each step.</p>
+</td>
+</tr>
+<tr>
+<td align="center" width="33%">
+<br />
+<h3>🧠</h3>
+<h4>Dynamic Fields</h4>
+<p>AI generates the exact input fields each step needs. Database credentials, API tokens, config values — collected upfront.</p>
+</td>
+<td align="center" width="33%">
+<br />
+<h3>⚡</h3>
+<h4>Live Execution</h4>
+<p>Watch nodes pulse as they execute. See completions glow green. Track failures with retry options. Real-time progress.</p>
+</td>
+<td align="center" width="33%">
+<br />
+<h3>🎨</h3>
+<h4>Stunning UI</h4>
+<p>Dark mode. Glassmorphism. Smooth animations. Inspired by Linear, Raycast, and Vercel. You'll want to screenshot it.</p>
+</td>
+</tr>
+</table>
 
 <br />
 
-## 📦 Installation
-
-Overture works with **any MCP-compatible AI coding agent**. One command to install, zero configuration required.
-
-### Claude Code
-```bash
-claude mcp add overture-mcp -- npx overture-mcp
-```
-
-### Cursor
-Add to your MCP configuration (`~/.cursor/mcp.json`):
-```json
-{
-  "mcpServers": {
-    "overture": {
-      "command": "npx",
-      "args": ["overture-mcp"]
-    }
-  }
-}
-```
-
-### Cline (VS Code)
-Add to your Cline MCP settings:
-```json
-{
-  "mcpServers": {
-    "overture": {
-      "command": "npx",
-      "args": ["overture-mcp"]
-    }
-  }
-}
-```
-
-### Global Installation
-```bash
-npm install -g overture-mcp
-```
-Then use `overture-mcp` directly instead of `npx overture-mcp`.
+---
 
 <br />
 
 ## 🔄 How It Works
 
+<br />
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  1. PROMPT                                                      │
-│     You give your agent a task                                  │
-│     "Build a full-stack e-commerce app with Stripe"             │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  2. PLAN GENERATION                                             │
-│     Agent generates a deep, structured plan                     │
-│     Every task broken down to atomic steps                      │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  3. VISUAL RENDERING                                            │
-│     Overture renders the plan as an interactive graph           │
-│     Opens automatically in your browser                         │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  4. REVIEW & ENRICH                                             │
-│     Click nodes to expand details                               │
-│     Attach files, docs, API keys to specific steps              │
-│     Select between alternative approaches                       │
-│     Fill in AI-generated dynamic fields                         │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  5. APPROVE & EXECUTE                                           │
-│     Hit approve when you're ready                               │
-│     Watch nodes light up as execution progresses                │
-│     Pause, retry, or rollback at any point                      │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│   1. PROMPT                                                              │
+│      ──────                                                              │
+│      You give your agent a task:                                         │
+│      "Build a full-stack e-commerce app with Stripe integration"         │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│   2. DEEP PLANNING                                                       │
+│      ─────────────                                                       │
+│      Agent generates a comprehensive plan — not 5 steps, but 50.         │
+│      Every task broken down to its atomic level.                         │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│   3. VISUAL RENDERING                                                    │
+│      ────────────────                                                    │
+│      Overture intercepts the plan and renders it as an interactive       │
+│      flowchart. Opens automatically in your browser.                     │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│   4. REVIEW & ENRICH                                                     │
+│      ───────────────                                                     │
+│      Click nodes to expand details. Attach context per step.             │
+│      Select between alternative approaches. Fill in required fields.     │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│   5. APPROVE & EXECUTE                                                   │
+│      ─────────────────                                                   │
+│      One click to approve. Watch nodes light up as execution             │
+│      progresses. Pause, modify, or rollback at any point.                │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 <br />
 
-## 📊 Comparison
+---
 
-| Tool | Visual Plan | Interactive Editing | Agent Agnostic | Context Attachment |
-|------|:-----------:|:-------------------:|:--------------:|:------------------:|
-| Devin 2.0 | ❌ Text-based | Limited | ❌ Devin only | ❌ |
-| Cline Plan Mode | ❌ Text-based | ✅ Text only | ❌ Cline only | ❌ |
-| AgentBoard | ⚠️ Logging only | ❌ Read-only | ⚠️ Partial | ❌ |
-| Miro/FigJam | ✅ Manual | ✅ Full | N/A | ❌ |
-| **Overture** | ✅ **Interactive** | ✅ **Full** | ✅ **All agents** | ✅ **Per-node** |
+<br />
+
+## 📊 Why Overture?
+
+<br />
+
+| | Visual Plan | Edit & Customize | Any Agent | Attach Context |
+|:--|:--:|:--:|:--:|:--:|
+| **Devin** | ❌ Text only | ⚠️ Limited | ❌ Devin only | ❌ |
+| **Cline Plan Mode** | ❌ Text only | ✅ Text editing | ❌ Cline only | ❌ |
+| **AgentBoard** | ⚠️ Logs only | ❌ Read-only | ⚠️ Partial | ❌ |
+| **Miro / FigJam** | ✅ Manual | ✅ Full | N/A | ❌ |
+| **Overture** | ✅ **Interactive graph** | ✅ **Full control** | ✅ **All MCP agents** | ✅ **Per-node** |
+
+<br />
+
+---
 
 <br />
 
 ## 🛣️ Roadmap
 
+<br />
+
 ### ✅ Shipped
-- Interactive plan canvas with pan, zoom, search
-- Node states (pending, active, completed, failed)
-- Branching and decision nodes
-- Rich context attachment (files, docs, MCP servers)
-- Dynamic AI-generated input fields
-- Real-time execution tracking
-- Dark mode UI with animations
 
-### 🚧 Coming Soon
-- **Parallel Execution** — Run multiple branches simultaneously, pick the winner
-- **Plan Templates** — Save and reuse approved plans
-- **Checkpoint Rollback** — Roll back to any successful state
-- **Export** — Markdown, PNG, JSON export of plans
-
-### 🔮 Future
-- **Multiplayer Collaboration** — Real-time team editing like FigJam
-- **Approval Workflows** — Require sign-off before execution
-- **Plan Analytics** — Track execution patterns and optimize
-- **Community Templates** — Share and discover plan templates
+- [x] Interactive plan canvas (pan, zoom, search, rearrange)
+- [x] Node states — pending, active, completed, failed, skipped
+- [x] Branching and decision nodes
+- [x] Rich context attachment — files, docs, images, MCP servers
+- [x] Dynamic AI-generated input fields
+- [x] Real-time execution tracking with live status
+- [x] Dark mode UI with smooth animations
+- [x] Multi-agent support — Claude Code, Cursor, Cline, Sixth
 
 <br />
 
-## 🔧 Configuration
+### 🚧 Coming Soon
 
-### Environment Variables
+- [ ] **Parallel Execution** — Run multiple branches, pick the winner
+- [ ] **Plan Templates** — Save and reuse approved plans
+- [ ] **Checkpoint Rollback** — Roll back to any successful state
+- [ ] **Export** — Markdown, PNG, JSON export
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OVERTURE_HTTP_PORT` | `3031` | HTTP server port for the UI |
-| `OVERTURE_WS_PORT` | `3030` | WebSocket server port |
-| `OVERTURE_AUTO_OPEN` | `true` | Auto-open browser on start |
+<br />
+
+### 🔮 Future
+
+- [ ] **Multiplayer** — Real-time collaborative editing
+- [ ] **Approval Workflows** — Team sign-off before execution
+- [ ] **Plan Analytics** — Optimize based on execution patterns
+- [ ] **Community Templates** — Share and discover plans
+
+<br />
+
+---
+
+<br />
+
+## ⚙️ Configuration
+
+<br />
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `OVERTURE_HTTP_PORT` | `3031` | Port for the web UI |
+| `OVERTURE_WS_PORT` | `3030` | Port for WebSocket communication |
+| `OVERTURE_AUTO_OPEN` | `true` | Auto-open browser when server starts |
+
+<br />
+
+---
 
 <br />
 
 ## 🤝 Contributing
 
-We welcome contributions! Whether it's:
-- 🐛 Bug reports
-- 💡 Feature requests
-- 📖 Documentation improvements
-- 🔧 Code contributions
+We love contributions! Here's how you can help:
 
-Check out our [issues page](https://github.com/SixHq/Overture/issues) to get started.
+- 🐛 **Found a bug?** [Open an issue](https://github.com/SixHq/Overture/issues/new?template=bug_report.yml)
+- 💡 **Have an idea?** [Request a feature](https://github.com/SixHq/Overture/issues/new?template=feature_request.yml)
+- 📖 **Improve docs?** PRs welcome
+- 🔧 **Write code?** Check out [good first issues](https://github.com/SixHq/Overture/labels/good%20first%20issue)
+
+Read our [Contributing Guide](https://github.com/SixHq/Overture/blob/main/CONTRIBUTING.md) to get started.
+
+<br />
+
+---
 
 <br />
 
@@ -254,22 +417,30 @@ MIT © [Sixth](https://trysixth.com)
 
 ---
 
-<p align="center">
-  <strong>Built with ❤️ by <a href="https://trysixth.com">Sixth</a></strong>
-</p>
+<br />
 
-<p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=Sixth.sixth-ai">
-    <img src="https://img.shields.io/badge/VS%20Code-Install%20Sixth-007ACC?style=for-the-badge&logo=visualstudiocode" alt="Install Sixth" />
-  </a>
-</p>
+<div align="center">
 
-<p align="center">
-  <sub>For the ultimate Overture experience, try <a href="https://marketplace.visualstudio.com/items?itemName=Sixth.sixth-ai">Sixth for VS Code</a> — zero setup, embedded canvas, deeper integration.</sub>
-</p>
+### Built with ❤️ by [Sixth](https://trysixth.com)
 
 <br />
 
-<p align="center">
-  <i>"The best time to shape the plan is before the first line of code is written."</i>
-</p>
+[![Install Sixth for VS Code](https://img.shields.io/badge/VS%20Code-Install%20Sixth%20→-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=Sixth.sixth-ai)
+
+<br />
+
+*For the ultimate Overture experience — zero setup, embedded canvas, deeper integration.*
+
+<br />
+
+---
+
+<br />
+
+**"The best time to shape the plan is before the first line of code is written."**
+
+<br />
+
+[⬆ Back to top](#overture)
+
+</div>
