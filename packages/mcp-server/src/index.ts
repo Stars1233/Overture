@@ -139,7 +139,7 @@ const TOOLS = [
   {
     name: 'stream_plan_chunk',
     description:
-      'Stream a chunk of the plan XML to Overture. Use this to send the plan incrementally as it is generated. Each chunk will be parsed and nodes/edges will appear in real-time on the canvas.',
+      'Stream a chunk of the plan XML to Overture. IMPORTANT: Call get_usage_instructions first to learn the correct XML format and workflow. Use this to send the plan incrementally as it is generated. Each chunk will be parsed and nodes/edges will appear in real-time on the canvas.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -162,7 +162,7 @@ const TOOLS = [
   {
     name: 'submit_plan',
     description:
-      'Submit a complete plan XML to Overture. Use this if you have the entire plan ready at once. The plan will be parsed and displayed on the canvas.',
+      'Submit a complete plan XML to Overture. IMPORTANT: Call get_usage_instructions first to learn the correct XML format and workflow. Use this if you have the entire plan ready at once. The plan will be parsed and displayed on the canvas.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -403,7 +403,7 @@ const TOOLS = [
   },
   {
     name: 'create_new_plan',
-    description: 'Signal that you are creating a completely new, unrelated plan. Call this BEFORE submitting a new plan when the user asks for something unrelated to the current plan (e.g., "let\'s work on something else", "forget that, build X instead"). The new plan will be added alongside existing plans (Figma-style artboards). After calling this, submit the new plan using submit_plan or stream_plan_chunk, then call get_approval.',
+    description: 'Signal that you are creating a completely new, unrelated plan. IMPORTANT: Call get_usage_instructions first if you haven\'t already. Call this BEFORE submitting a new plan when the user asks for something unrelated to the current plan (e.g., "let\'s work on something else", "forget that, build X instead"). The new plan will be added alongside existing plans (Figma-style artboards). After calling this, submit the new plan using submit_plan or stream_plan_chunk, then call get_approval.',
     inputSchema: {
       type: 'object' as const,
       properties: {
