@@ -1,5 +1,7 @@
 import { createHash } from 'crypto';
 import path from 'path';
+import fs from 'fs/promises';
+import { fileURLToPath } from 'url';
 import { StreamingXMLParser } from '../parser/xml-parser.js';
 import { planStore, multiProjectPlanStore } from '../store/plan-store.js';
 import { wsManager } from '../websocket/ws-server.js';
@@ -1144,6 +1146,100 @@ export function handleCreateNewPlan(projectId?: string): {
     success: true,
     message: `Ready to receive new plan. Submit the new plan using submit_plan or stream_plan_chunk, then call get_approval to wait for user approval. Note: Existing plans will be preserved on the canvas.`,
     projectId: effectiveProjectId,
+  };
+}
+
+/**
+ * Get usage instructions for a specific agent type.
+ * Returns the appropriate documentation markdown for the agent.
+ */
+export async function handleGetUsageInstructions(agentType: string): Promise<{
+  success: boolean;
+  agentType: string;
+  instructions?: string;
+  message: string;
+  availableAgents: string[];
+}> {
+  const availableAgents = ['claude-code', 'cline', 'cursor', 'sixth'];
+
+  // Normalize agent type
+  const normalizedType = agentType.toLowerCase().trim();
+
+  // Map common aliases
+  const agentMap: Record<string, string> = {
+    'claude-code': 'claude-code',
+    'claude': 'claude-code',
+    'claudecode': 'claude-code',
+    'cline': 'cline',
+    'cursor': 'cursor',
+    'sixth': 'sixth',
+    '6th': 'sixth',
+  };
+
+  const mappedType = agentMap[normalizedType];
+
+  if (!mappedType) {
+    return {
+      success: false,
+      agentType: normalizedType,
+      message: `Unknown agent type "${agentType}". Available agents: ${availableAgents.join(', ')}`,
+      availableAgents,
+    };
+  }
+
+  // Find the prompts directory
+  // Try multiple possible locations since the package might be installed differently
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+
+  // Possible prompt locations:
+  // 1. Development: packages/mcp-server/dist/tools/ -> ../../../../prompts
+  // 2. Development (src): packages/mcp-server/src/tools/ -> ../../../../prompts
+  // 3. Installed as package: might be in different location
+  const possiblePaths = [
+    path.resolve(__dirname, '../../../../prompts'),  // From dist/tools or src/tools
+    path.resolve(__dirname, '../../../prompts'),     // Alternative
+    path.resolve(__dirname, '../../prompts'),        // Another alternative
+    path.resolve(process.cwd(), 'prompts'),          // Relative to cwd
+  ];
+
+  let promptFile: string | null = null;
+  let instructions: string | null = null;
+
+  for (const promptsDir of possiblePaths) {
+    const candidatePath = path.join(promptsDir, `${mappedType}.md`);
+    try {
+      instructions = await fs.readFile(candidatePath, 'utf-8');
+      promptFile = candidatePath;
+      console.error(`[Overture] Found instructions at: ${candidatePath}`);
+      break;
+    } catch {
+      // Try next path
+      continue;
+    }
+  }
+
+  if (instructions && promptFile) {
+    console.error(`[Overture] Loaded instructions for ${mappedType} (${instructions.length} chars)`);
+
+    return {
+      success: true,
+      agentType: mappedType,
+      instructions,
+      message: `Instructions loaded for ${mappedType}. Follow these instructions to use Overture MCP effectively.`,
+      availableAgents,
+    };
+  }
+
+  // If we get here, couldn't find the file
+  console.error(`[Overture] Failed to find instructions for ${mappedType}. Searched paths:`);
+  possiblePaths.forEach(p => console.error(`  - ${path.join(p, `${mappedType}.md`)}`));
+
+  return {
+    success: false,
+    agentType: mappedType,
+    message: `Failed to load instructions for ${mappedType}. Instructions file not found.`,
+    availableAgents,
   };
 }
 

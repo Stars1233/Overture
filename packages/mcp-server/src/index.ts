@@ -21,6 +21,7 @@ import {
   handleGetResumeInfo,
   handleRequestPlanUpdate,
   handleCreateNewPlan,
+  handleGetUsageInstructions,
 } from './tools/handlers.js';
 import { NodeStatus } from './types.js';
 
@@ -127,6 +128,10 @@ const RequestPlanUpdateSchema = z.object({
 
 const CreateNewPlanSchema = z.object({
   project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+});
+
+const GetUsageInstructionsSchema = z.object({
+  agent_type: z.string().describe('The type of agent requesting instructions (claude-code, cline, cursor, sixth)'),
 });
 
 // Tool definitions
@@ -410,6 +415,20 @@ const TOOLS = [
       required: [],
     },
   },
+  {
+    name: 'get_usage_instructions',
+    description: 'Get detailed usage instructions for Overture MCP. CALL THIS FIRST before using any other Overture tools. Returns comprehensive documentation on how to structure plans, use XML format, handle approvals, and execute nodes. Pass your agent type to get agent-specific instructions.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        agent_type: {
+          type: 'string',
+          description: 'The type of agent requesting instructions. Supported: "claude-code", "cline", "cursor", "sixth"',
+        },
+      },
+      required: ['agent_type'],
+    },
+  },
 ];
 
 async function main() {
@@ -591,6 +610,19 @@ async function main() {
         case 'create_new_plan': {
           const parsed = CreateNewPlanSchema.parse(args);
           const result = handleCreateNewPlan(parsed.project_id);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          };
+        }
+
+        case 'get_usage_instructions': {
+          const parsed = GetUsageInstructionsSchema.parse(args);
+          const result = await handleGetUsageInstructions(parsed.agent_type);
           return {
             content: [
               {
