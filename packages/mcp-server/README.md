@@ -17,7 +17,7 @@
 
 ## 🎬 See It In Action
 
-![Overture Demo](../../assets/demo.gif)
+![Overture Demo](https://firebasestorage.googleapis.com/v0/b/sixth-v2.appspot.com/o/0221%20(1).gif?alt=media&token=dd1b4db5-480a-4178-9cc4-3d1380ea4e57)
 
 ![Overture Plan Canvas](../../assets/screenshot.png)
 
