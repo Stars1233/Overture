@@ -248,7 +248,7 @@ export function handleStreamPlanChunk(
   xmlChunk: string,
   workspacePath?: string,
   agentType?: string
-): { success: boolean; message: string; projectId?: string } {
+): { success: boolean; message: string; projectId?: string; expected_project_id?: string } {
   // Determine project context
   const effectivePath = workspacePath || process.cwd();
   const projectId = workspacePath ? generateProjectId(effectivePath) : currentProjectId;
@@ -306,7 +306,12 @@ export function handleStreamPlanChunk(
   try {
     const parser = currentParsers.get(projectId)!;
     parser.write(xmlChunk);
-    return { success: true, message: 'Chunk processed', projectId };
+    return {
+      success: true,
+      message: 'Chunk processed',
+      projectId,
+      expected_project_id: projectId
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, message, projectId };
@@ -320,7 +325,7 @@ export function handleSubmitPlan(
   planXml: string,
   workspacePath?: string,
   agentType?: string
-): { success: boolean; message: string; projectId?: string } {
+): { success: boolean; message: string; projectId?: string; expected_project_id?: string } {
   // Determine project context
   const effectivePath = workspacePath || process.cwd();
   const projectId = workspacePath ? generateProjectId(effectivePath) : 'default';
@@ -397,7 +402,15 @@ export function handleSubmitPlan(
     const nodes = multiProjectPlanStore.getNodes(projectId);
     const edges = multiProjectPlanStore.getEdges(projectId);
     console.error('[Overture] Plan parsing complete. Nodes:', nodes.length, 'Edges:', edges.length);
-    return { success: true, message: 'Plan submitted successfully', projectId };
+    console.error('[Overture] Project stored with ID:', projectId);
+    console.error('[Overture] All projects after submit:', Array.from(multiProjectPlanStore.getAllProjects().map(p => p.projectId)));
+    return {
+      success: true,
+      message: `Plan submitted successfully. IMPORTANT: Use project_id "${projectId}" in ALL subsequent calls (get_approval, update_node_status, etc.)`,
+      projectId,
+      // Explicit field to make it clear what ID to use
+      expected_project_id: projectId
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('[Overture] Plan parsing failed:', message);
@@ -421,6 +434,8 @@ export async function handleGetApproval(projectId?: string): Promise<{
   const effectiveProjectId = projectId || currentProjectId;
 
   console.error(`[Overture] get_approval called for project: ${effectiveProjectId}`);
+  console.error(`[Overture] Provided projectId: ${projectId}, currentProjectId: ${currentProjectId}`);
+  console.error(`[Overture] All projects in store:`, multiProjectPlanStore.getAllProjects().map(p => p.projectId));
   console.error(`[Overture] Current plan status:`, multiProjectPlanStore.getPlan(effectiveProjectId)?.status);
 
   // Wait up to 60 seconds before returning 'pending'

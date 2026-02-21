@@ -90,9 +90,20 @@ class WebSocketManager {
 
           // Handle relay messages from other MCP server instances
           if (message.type === 'relay' && message.payload) {
-            console.error('[Overture] Relaying message:', message.payload.type);
+            const payload = message.payload;
+            console.error('[Overture] Relaying message:', payload.type);
+
+            // CRITICAL: Sync local state from relay messages
+            // This ensures the main server can handle approve_plan from UI
+            // Wrapped in try-catch to ensure broadcast always happens
+            try {
+              this.syncStateFromRelay(payload);
+            } catch (err) {
+              console.error('[Overture] Error syncing state from relay:', err);
+            }
+
             // Broadcast the relayed message to all UI clients
-            const relayData = JSON.stringify(message.payload);
+            const relayData = JSON.stringify(payload);
             for (const [clientWs] of this.clients) {
               if (clientWs !== ws && clientWs.readyState === WebSocket.OPEN) {
                 clientWs.send(relayData);
@@ -218,7 +229,11 @@ class WebSocketManager {
           this.send(ws, {
             type: 'plan_loaded',
             plan: {
-              plan: state.plan,
+              plan: {
+                ...state.plan,
+                projectId: state.projectId,
+                workspacePath: state.workspacePath || ''
+              },
               nodes: state.nodes,
               edges: state.edges,
               fieldValues: state.fieldValues,
@@ -277,29 +292,39 @@ class WebSocketManager {
       }
 
       case 'approve_plan': {
-        // If no projectId in message, find the active project with a 'ready' plan
-        let effectiveProjectId = projectId;
-        if (effectiveProjectId === 'default') {
-          const projects = multiProjectPlanStore.getAllProjects();
-          for (const project of projects) {
-            const plan = multiProjectPlanStore.getPlan(project.projectId);
-            if (plan?.status === 'ready') {
-              effectiveProjectId = project.projectId;
-              break;
-            }
-          }
-        }
+        // Use projectId from message - frontend sends activeTabId which is the correct projectId
+        const effectiveProjectId = message.projectId || projectId;
 
         console.error(`[Overture] Plan approved by user (project: ${effectiveProjectId})`);
+        console.error(`[Overture] Message projectId: ${message.projectId}, Default projectId: ${projectId}`);
         console.error(`[Overture] Field values:`, Object.keys(message.fieldValues || {}).length);
         console.error(`[Overture] Node configs:`, Object.keys(message.nodeConfigs || {}).length);
 
+        // Check if project exists
+        const existingProject = multiProjectPlanStore.getProjectState(effectiveProjectId);
+        console.error(`[Overture] Project exists in store: ${!!existingProject}`);
+        if (existingProject) {
+          console.error(`[Overture] Project plan status: ${existingProject.plan?.status}`);
+          console.error(`[Overture] Project nodes: ${existingProject.nodes.length}`);
+        }
+
+        // Resolve local approval promise
         await multiProjectPlanStore.setApproval(
           effectiveProjectId,
           message.fieldValues,
           message.selectedBranches,
           message.nodeConfigs || {}
         );
+
+        // CRITICAL: Broadcast to ALL clients (including relay clients)
+        // so the MCP instance that submitted the plan can resolve its promise
+        this.broadcastAll({
+          type: 'approval_granted',
+          projectId: effectiveProjectId,
+          fieldValues: message.fieldValues,
+          selectedBranches: message.selectedBranches,
+          nodeConfigs: message.nodeConfigs || {}
+        });
         break;
       }
 
@@ -392,12 +417,97 @@ class WebSocketManager {
     }
   }
 
+  /**
+   * Sync local state when receiving relay messages from another MCP instance.
+   * This ensures the main server has the project state needed to handle approve_plan.
+   */
+  private syncStateFromRelay(payload: WSMessage): void {
+    const projectId = ('projectId' in payload && payload.projectId) ? payload.projectId as string : 'default';
+
+    switch (payload.type) {
+      case 'project_registered': {
+        const msg = payload as { type: 'project_registered'; projectId: string; projectName: string; workspacePath: string };
+        console.error(`[Overture] Syncing project_registered: ${msg.projectId}`);
+        multiProjectPlanStore.initializeProject({
+          projectId: msg.projectId,
+          projectName: msg.projectName,
+          workspacePath: msg.workspacePath,
+          agentType: 'unknown'
+        });
+        break;
+      }
+
+      case 'plan_started': {
+        const msg = payload as { type: 'plan_started'; plan: any; projectId?: string };
+        console.error(`[Overture] Syncing plan_started: ${msg.plan?.id} for project ${projectId}`);
+        if (msg.plan) {
+          multiProjectPlanStore.startPlan(projectId, msg.plan);
+        }
+        break;
+      }
+
+      case 'node_added': {
+        const msg = payload as { type: 'node_added'; node: any; projectId?: string };
+        console.error(`[Overture] Syncing node_added: ${msg.node?.id} for project ${projectId}`);
+        if (msg.node) {
+          multiProjectPlanStore.addNode(projectId, msg.node);
+        }
+        break;
+      }
+
+      case 'edge_added': {
+        const msg = payload as { type: 'edge_added'; edge: any; projectId?: string };
+        if (msg.edge) {
+          multiProjectPlanStore.addEdge(projectId, msg.edge);
+        }
+        break;
+      }
+
+      case 'plan_ready': {
+        console.error(`[Overture] Syncing plan_ready for project ${projectId}`);
+        multiProjectPlanStore.updatePlanStatus(projectId, 'ready');
+        break;
+      }
+
+      case 'node_status_updated': {
+        const msg = payload as { type: 'node_status_updated'; nodeId: string; status: any; output?: string; projectId?: string };
+        multiProjectPlanStore.updateNodeStatus(projectId, msg.nodeId, msg.status, msg.output);
+        break;
+      }
+
+      // Other message types don't need state sync
+      default:
+        break;
+    }
+  }
+
   private connectAsRelay(port: number): void {
     try {
       this.relayClient = new WebSocket(`ws://localhost:${port}`);
 
       this.relayClient.on('open', () => {
         console.error('[Overture] Connected as relay client to existing server');
+      });
+
+      // Handle messages from main server (including approval_granted)
+      this.relayClient.on('message', (data) => {
+        try {
+          const message = JSON.parse(data.toString());
+          console.error('[Overture] Relay client received:', message.type);
+
+          // Handle approval_granted - resolve local approval promise
+          if (message.type === 'approval_granted') {
+            console.error('[Overture] Relay client: Resolving approval for project:', message.projectId);
+            multiProjectPlanStore.setApproval(
+              message.projectId,
+              message.fieldValues || {},
+              message.selectedBranches || {},
+              message.nodeConfigs || {}
+            );
+          }
+        } catch (err) {
+          console.error('[Overture] Relay client: Failed to parse message:', err);
+        }
       });
 
       this.relayClient.on('error', (err) => {

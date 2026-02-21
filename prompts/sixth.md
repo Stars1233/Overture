@@ -90,7 +90,15 @@ Overture supports multiple projects running simultaneously. Each project gets it
 
 - **`workspace_path`**: Pass the absolute path to your project directory when calling `submit_plan` or `stream_plan_chunk`. This enables project isolation and history tracking.
 - **`agent_type`**: Identify yourself (e.g., "sixth") so the UI shows the correct agent name.
-- **`project_id`**: Returned in responses after submitting a plan. Use it in subsequent calls to target the correct project.
+- **`project_id`** / **`expected_project_id`**: **CRITICAL** - These are returned in the response from `submit_plan` and `stream_plan_chunk`. **YOU MUST use this exact value** in ALL subsequent calls (`get_approval`, `update_node_status`, `plan_completed`, etc.). The frontend uses this ID to match your approval request.
+
+**Example workflow:**
+```
+1. Call submit_plan({ plan_xml, workspace_path: "/path/to/project" })
+2. Response: { success: true, projectId: "84393059027d", expected_project_id: "84393059027d" }
+3. Call get_approval({ project_id: "84393059027d" })  ← MUST match!
+4. Call update_node_status({ node_id: "n1", status: "active", project_id: "84393059027d" })
+```
 
 If you don't pass `workspace_path`, Overture uses a default project which works fine for single-project scenarios.
 

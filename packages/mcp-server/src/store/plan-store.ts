@@ -335,10 +335,31 @@ class MultiProjectPlanStore {
     console.error(`[Overture] waitForApproval called for project: ${projectId}`);
     console.error(`[Overture] Available promises:`, Array.from(this.approvalPromises.keys()));
 
-    const promise = this.approvalPromises.get(projectId);
+    let promise = this.approvalPromises.get(projectId);
+
+    // If no promise exists, try to restore from history and create one
     if (!promise) {
-      console.error(`[Overture] ERROR: No approval promise found for project ${projectId}`);
-      return 'cancelled';
+      console.error(`[Overture] No approval promise found, attempting to restore project from history...`);
+      const restored = await this.restoreProjectFromHistory(projectId);
+      if (restored) {
+        promise = this.approvalPromises.get(projectId);
+        console.error(`[Overture] Project restored, approval promise created`);
+      }
+    }
+
+    // If still no promise, check if project exists and create a promise
+    if (!promise) {
+      const state = this.projects.get(projectId);
+      if (state?.plan) {
+        console.error(`[Overture] Project exists but no promise, creating one...`);
+        promise = new Promise((resolve) => {
+          this.approvalResolvers.set(projectId, resolve);
+        });
+        this.approvalPromises.set(projectId, promise);
+      } else {
+        console.error(`[Overture] ERROR: No project found for ${projectId}, cannot create approval promise`);
+        return 'cancelled';
+      }
     }
 
     console.error(`[Overture] Waiting for approval (timeout: ${timeoutMs}ms)...`);

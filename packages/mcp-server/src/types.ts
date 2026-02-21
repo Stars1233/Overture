@@ -231,7 +231,9 @@ export type WSMessage =
   | { type: 'plan_updated'; plan: PersistedPlan; previousPlan: PersistedPlan; diff: PlanDiff; projectId: string }
   | { type: 'new_plan_created'; planId: string; projectId: string }
   | { type: 'plan_updated_incrementally'; operationCount: number; successCount: number; failCount: number; projectId: string }
-  | { type: 'node_replaced'; oldNodeId: string; node: PlanNode; projectId: string };
+  | { type: 'node_replaced'; oldNodeId: string; node: PlanNode; projectId: string }
+  // Internal relay sync
+  | { type: 'approval_granted'; projectId: string; fieldValues: Record<string, string>; selectedBranches: Record<string, string>; nodeConfigs: Record<string, NodeConfig> };
 
 export type WSClientMessage =
   | {
