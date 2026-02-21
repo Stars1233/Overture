@@ -1193,13 +1193,14 @@ export async function handleGetUsageInstructions(agentType: string): Promise<{
   const __dirname = path.dirname(__filename);
 
   // Possible prompt locations:
-  // 1. Development: packages/mcp-server/dist/tools/ -> ../../../../prompts
-  // 2. Development (src): packages/mcp-server/src/tools/ -> ../../../../prompts
-  // 3. Installed as package: might be in different location
+  // 1. npm installed: node_modules/overture-mcp/prompts (from dist/tools -> ../../prompts)
+  // 2. Development: packages/mcp-server/dist/tools/ -> ../../../../prompts
+  // 3. Development (src): packages/mcp-server/src/tools/ -> ../../../../prompts
   const possiblePaths = [
-    path.resolve(__dirname, '../../../../prompts'),  // From dist/tools or src/tools
-    path.resolve(__dirname, '../../../prompts'),     // Alternative
-    path.resolve(__dirname, '../../prompts'),        // Another alternative
+    path.resolve(__dirname, '../../prompts'),        // npm installed (dist/tools -> prompts)
+    path.resolve(__dirname, '../prompts'),           // Alternative npm location
+    path.resolve(__dirname, '../../../../prompts'),  // Development (monorepo root)
+    path.resolve(__dirname, '../../../prompts'),     // Alternative dev location
     path.resolve(process.cwd(), 'prompts'),          // Relative to cwd
   ];
 

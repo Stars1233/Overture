@@ -1,19 +1,21 @@
 {
-  "name": "@overture/mcp-server",
+  "name": "overture-mcp",
   "version": "0.1.0",
-  "description": "Overture MCP Server - Visual agent plan execution",
+  "description": "Overture MCP Server - Visual agent plan execution and approval workflow for AI coding agents",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "overture": "./dist/cli.js"
+    "overture": "./dist/cli.js",
+    "overture-mcp": "./dist/cli.js"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean",
     "start": "node dist/index.js",
     "lint": "eslint src/",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -38,14 +40,32 @@
   },
   "files": [
     "dist",
-    "ui-dist"
+    "ui-dist",
+    "prompts"
   ],
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "ai",
     "agent",
-    "visualization"
+    "visualization",
+    "claude",
+    "cline",
+    "cursor",
+    "coding-agent",
+    "plan-execution"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SixHq/Overture.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SixHq/Overture/issues"
+  },
+  "homepage": "https://github.com/SixHq/Overture#readme",
   "author": "Sixth",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }

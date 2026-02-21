@@ -1,6 +1,6 @@
 # Overture
 
-**Agent Plan Visualizer** — An Open-Source MCP Server by [Sixth](https://sixth.dev)
+**Agent Plan Visualizer** — An Open-Source MCP Server by [Sixth](https://trysixth.com)
 
 <p align="center">
   <img src="./docs/demo.gif" alt="Overture Demo" width="800" />
