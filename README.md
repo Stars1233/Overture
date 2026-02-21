@@ -1,229 +1,288 @@
 # Overture
 
-**Agent Plan Visualizer** — An Open-Source MCP Server by [Sixth](https://trysixth.com)
+![Overture Logo](../../assets/logo.png)
 
-<p align="center">
-  <img src="https://firebasestorage.googleapis.com/v0/b/sixth-v2.appspot.com/o/copy_B7CEA825-7330-438E-943A-ECA598B56D39.GIF?alt=media&token=88b10910-3896-41de-8b87-fb632050611b" alt="Overture Plan Canvas" width="100%" />
-</p>
+### See What Your AI Is Thinking — Before It Writes a Single Line of Code
 
-> See what your AI coding agent plans to do **before** it writes a single line of code.
+[![npm version](https://img.shields.io/npm/v/overture-mcp?style=for-the-badge&color=00C7B7&labelColor=000000)](https://www.npmjs.com/package/overture-mcp)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge&labelColor=000000)](https://github.com/SixHq/Overture/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/SixHq/Overture?style=for-the-badge&color=yellow&labelColor=000000)](https://github.com/SixHq/Overture/stargazers)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge&labelColor=000000)](https://github.com/SixHq/Overture/pulls)
+
+**Stop flying blind with AI agents. Visualize, customize, and approve every step.**
+
+[Quick Start](#-quick-start) · [Features](#-features) · [Demo](#-see-it-in-action) · [Docs](#-how-it-works) · [Roadmap](#-roadmap)
 
 ---
 
-## The Problem
+## 🎬 See It In Action
 
-Every AI coding agent today — Cursor, Claude Code, Cline, Copilot — shares the same fundamental UX flaw: you type a prompt, the agent starts working, and you have **no visibility** into what it plans to do. By the time you realize it went in the wrong direction, it's already written 200+ lines of code you need to discard.
+![Overture Demo](https://firebasestorage.googleapis.com/v0/b/sixth-v2.appspot.com/o/0221%20(1).gif?alt=media&token=dd1b4db5-480a-4178-9cc4-3d1380ea4e57)
 
-## The Solution
+![Overture Plan Canvas](../../assets/screenshot.png)
 
-Overture intercepts the planning phase and renders it as an **interactive visual flowchart**. You can:
+*A completed plan in Overture — every node visible, every decision tracked, full context attached.*
 
-- **See** every step the agent plans to take
-- **Choose** between alternative approaches at decision points
-- **Configure** API keys, settings, and options before execution starts
-- **Watch** real-time progress as execution happens
+---
 
-## Features
+## 😤 The Problem
 
-- **Visual Plan Canvas** — Interactive flowchart built with ReactFlow
-- **Decision Nodes** — Choose between branching implementation approaches
-- **Dynamic Fields** — Input API keys, configuration, and preferences before execution
-- **Real-time Updates** — Watch nodes light up as execution progresses
-- **Agent Agnostic** — Works with Claude Code, Cursor, Cline, and any MCP-compatible tool
-- **Runs Locally** — Your data never leaves your machine
+You know this frustration:
 
-## Quick Start
+```
+You:    "Build me a landing page with authentication"
 
-### 1. Install
+Agent:  *silently writes 500 lines of code*
 
-```bash
-npx overture
+You:    "Wait... I wanted OAuth, not email/password"
+
+Agent:  *deletes everything, starts over*
 ```
 
-This starts the Overture server and opens the visual canvas in your browser.
+**Every AI coding agent today is a black box.**
 
-### 2. Configure Your Agent
+- Cursor, Claude Code, Cline, Copilot — they all work the same way
+- You type a prompt → agent starts coding → you pray it understood you
+- By the time you see the output, it's already built the wrong thing
+- Wasted tokens. Wasted time. Wasted patience.
 
-Add Overture to your MCP configuration:
+### Why Text Plans Don't Work
 
-**Claude Code** (`~/.config/claude-code/settings.json`):
+Some agents show "plans" in chat. But software isn't linear:
+
+| Text Plans | Reality |
+|------------|---------|
+| Step 1 → Step 2 → Step 3 | Steps branch, converge, and depend on each other |
+| "Set up database" | Which database? What schema? What credentials? |
+| No way to add context | You can't attach files, API keys, or docs to specific steps |
+| All or nothing | Can't approve some steps while modifying others |
+
+---
+
+## 💡 The Solution
+
+### Overture makes the invisible visible.
+
+Overture intercepts your AI agent's planning phase and renders it as an **interactive visual flowchart** — before any code is written.
+
+| Before Overture | With Overture |
+|-----------------|---------------|
+| Hope the agent understood you | See the complete plan as a graph |
+| Watch code appear line by line | Click any node for full details |
+| Realize it went wrong 200 lines in | Attach files, docs, API keys per step |
+| Start over | Approve only what you want built |
+
+> **Think FigJam meets AI agent planning.**
+
+---
+
+## 🚀 Quick Start
+
+Get Overture running in 30 seconds. Works with **any MCP-compatible agent**.
+
+### Claude Code
+
+```bash
+claude mcp add overture-mcp -- npx overture-mcp
+```
+
+### Cursor
+
+Add to `~/.cursor/mcp.json`:
+
 ```json
 {
   "mcpServers": {
     "overture": {
       "command": "npx",
-      "args": ["overture"]
+      "args": ["overture-mcp"]
     }
   }
 }
 ```
 
-**Cursor** (`.cursor/mcp.json`):
+### Cline (VS Code)
+
+Add to your Cline MCP settings:
+
 ```json
 {
   "mcpServers": {
     "overture": {
       "command": "npx",
-      "args": ["overture"]
+      "args": ["overture-mcp"]
     }
   }
 }
 ```
 
-**Cline** (VS Code MCP settings):
-```json
-{
-  "overture": {
-    "command": "npx",
-    "args": ["overture"]
-  }
-}
-```
-
-### 3. Add Agent Instructions
-
-Include the Overture prompt in your agent's system instructions. See [`prompts/`](./prompts/) for ready-to-use templates.
-
-## How It Works
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                         AI AGENT                              │
-│  1. Receives task from user                                  │
-│  2. Generates XML plan                                       │
-│  3. Calls submit_plan() MCP tool                             │
-│  4. Waits for get_approval() — blocks until user approves    │
-│  5. Executes, calling update_node_status() for each step     │
-└──────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────┐
-│                    OVERTURE MCP SERVER                        │
-│  • Parses XML plan (streaming or complete)                   │
-│  • Emits nodes/edges via WebSocket                           │
-│  • Collects user input (field values, branch selections)     │
-│  • Returns approval + config to agent                        │
-└──────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────┐
-│                      WEB UI CANVAS                            │
-│  • Renders plan as interactive graph                         │
-│  • User clicks nodes to view details                         │
-│  • User fills in dynamic fields                              │
-│  • User selects branches at decision points                  │
-│  • User clicks "Approve & Execute"                           │
-└──────────────────────────────────────────────────────────────┘
-```
-
-## MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `submit_plan` | Submit a complete plan XML |
-| `stream_plan_chunk` | Stream plan XML incrementally for real-time node appearance |
-| `get_approval` | Block until user approves the plan, returns field values |
-| `update_node_status` | Update a node's status during execution |
-| `plan_completed` | Mark the plan as successfully completed |
-| `plan_failed` | Mark the plan as failed with an error message |
-
-## Plan XML Schema
-
-```xml
-<plan id="unique_id" title="Plan Title" agent="agent-name">
-  <nodes>
-    <node id="n1" type="task" status="pending">
-      <title>Step title</title>
-      <description>What this step does</description>
-      <complexity>low|medium|high</complexity>
-      <expected_output>What this produces</expected_output>
-      <risks>Potential issues</risks>
-
-      <dynamic_field
-        id="f1" name="api_key" type="secret" required="true"
-        title="API Key" description="Your API key"
-        setup_instructions="Get from dashboard.example.com"
-      />
-    </node>
-
-    <node id="n2" type="decision" status="pending">
-      <title>Choose approach</title>
-      <branch id="b1" label="Option A">
-        <description>First approach</description>
-        <pros>Benefits</pros>
-        <cons>Drawbacks</cons>
-      </branch>
-    </node>
-  </nodes>
-
-  <edges>
-    <edge id="e1" from="n1" to="n2" />
-  </edges>
-</plan>
-```
-
-## Development
+### Global Installation
 
 ```bash
-# Clone the repo
-git clone https://github.com/sixth/overture
-cd overture
-
-# Install dependencies
-pnpm install
-
-# Start development servers
-pnpm dev
-
-# Build for production
-pnpm build
+npm install -g overture-mcp
 ```
 
-### Project Structure
+Then use `overture-mcp` instead of `npx overture-mcp` in your config.
+
+That's it. Next time your agent plans something, Overture opens automatically at `http://localhost:3031`
+
+---
+
+## ✨ Features
+
+### 🗺️ Interactive Canvas
+Your agent's plan as a beautiful, explorable graph. Pan, zoom, search, rearrange. A living document, not a static diagram.
+
+### 🔀 Branching Decisions
+When multiple approaches exist, see them all. Compare alternatives side-by-side. Pick your path with full context.
+
+### 📎 Rich Context
+Attach files, docs, images, and API keys to specific nodes. The agent gets exactly what it needs for each step.
+
+### 🧠 Dynamic Fields
+AI generates the exact input fields each step needs. Database credentials, API tokens, config values — collected upfront.
+
+### ⚡ Live Execution
+Watch nodes pulse as they execute. See completions glow green. Track failures with retry options. Real-time progress.
+
+### 🎨 Stunning UI
+Dark mode. Glassmorphism. Smooth animations. Inspired by Linear, Raycast, and Vercel. You'll want to screenshot it.
+
+---
+
+## 🔄 How It Works
 
 ```
-overture/
-├── packages/
-│   ├── mcp-server/    # MCP server, XML parser, WebSocket
-│   └── ui/            # React + ReactFlow canvas
-├── prompts/           # Agent instruction templates
-└── examples/          # Example plan XML files
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│   1. PROMPT                                                              │
+│      ──────                                                              │
+│      You give your agent a task:                                         │
+│      "Build a full-stack e-commerce app with Stripe integration"         │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│   2. DEEP PLANNING                                                       │
+│      ─────────────                                                       │
+│      Agent generates a comprehensive plan — not 5 steps, but 50.         │
+│      Every task broken down to its atomic level.                         │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│   3. VISUAL RENDERING                                                    │
+│      ────────────────                                                    │
+│      Overture intercepts the plan and renders it as an interactive       │
+│      flowchart. Opens automatically in your browser.                     │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│   4. REVIEW & ENRICH                                                     │
+│      ───────────────                                                     │
+│      Click nodes to expand details. Attach context per step.             │
+│      Select between alternative approaches. Fill in required fields.     │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│   5. APPROVE & EXECUTE                                                   │
+│      ─────────────────                                                   │
+│      One click to approve. Watch nodes light up as execution             │
+│      progresses. Pause, modify, or rollback at any point.                │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Configuration
+---
 
-Environment variables:
+## 📊 Why Overture?
 
-| Variable | Default | Description |
-|----------|---------|-------------|
+| | Visual Plan | Edit & Customize | Any Agent | Attach Context |
+|:--|:--:|:--:|:--:|:--:|
+| **Devin** | ❌ Text only | ⚠️ Limited | ❌ Devin only | ❌ |
+| **Cline Plan Mode** | ❌ Text only | ✅ Text editing | ❌ Cline only | ❌ |
+| **AgentBoard** | ⚠️ Logs only | ❌ Read-only | ⚠️ Partial | ❌ |
+| **Miro / FigJam** | ✅ Manual | ✅ Full | N/A | ❌ |
+| **Overture** | ✅ **Interactive graph** | ✅ **Full control** | ✅ **All MCP agents** | ✅ **Per-node** |
+
+---
+
+## 🛣️ Roadmap
+
+### ✅ Shipped
+
+- [x] Interactive plan canvas (pan, zoom, search, rearrange)
+- [x] Node states — pending, active, completed, failed, skipped
+- [x] Branching and decision nodes
+- [x] Rich context attachment — files, docs, images, MCP servers
+- [x] Dynamic AI-generated input fields
+- [x] Real-time execution tracking with live status
+- [x] Dark mode UI with smooth animations
+- [x] Multi-agent support — Claude Code, Cursor, Cline, Sixth
+
+### 🚧 Coming Soon
+
+- [ ] **Parallel Execution** — Run multiple branches, pick the winner
+- [ ] **Plan Templates** — Save and reuse approved plans
+- [ ] **Checkpoint Rollback** — Roll back to any successful state
+- [ ] **Export** — Markdown, PNG, JSON export
+
+### 🔮 Future
+
+- [ ] **Multiplayer** — Real-time collaborative editing
+- [ ] **Approval Workflows** — Team sign-off before execution
+- [ ] **Plan Analytics** — Optimize based on execution patterns
+- [ ] **Community Templates** — Share and discover plans
+
+---
+
+## ⚙️ Configuration
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
 | `OVERTURE_HTTP_PORT` | `3031` | Port for the web UI |
-| `OVERTURE_WS_PORT` | `3030` | Port for WebSocket |
-| `OVERTURE_AUTO_OPEN` | `true` | Auto-open browser on start |
-
-## Roadmap
-
-- [x] Core MCP server
-- [x] Visual canvas with ReactFlow
-- [x] Streaming XML parser
-- [x] Decision nodes and branch selection
-- [x] Dynamic input fields
-- [x] Real-time execution tracking
-- [ ] Parallel execution (run multiple branches)
-- [ ] Plan templates library
-- [ ] File/image attachments
-- [ ] Collaboration features
-- [ ] Export to Markdown/PNG
-
-## Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
-
-## License
-
-MIT — see [LICENSE](./LICENSE)
+| `OVERTURE_WS_PORT` | `3030` | Port for WebSocket communication |
+| `OVERTURE_AUTO_OPEN` | `true` | Auto-open browser when server starts |
 
 ---
 
-<p align="center">
-  Built with ❤️ by <a href="https://sixth.dev">Sixth</a>
-</p>
+## 🤝 Contributing
+
+We love contributions! Here's how you can help:
+
+- 🐛 **Found a bug?** [Open an issue](https://github.com/SixHq/Overture/issues/new?template=bug_report.yml)
+- 💡 **Have an idea?** [Request a feature](https://github.com/SixHq/Overture/issues/new?template=feature_request.yml)
+- 📖 **Improve docs?** PRs welcome
+- 🔧 **Write code?** Check out [good first issues](https://github.com/SixHq/Overture/labels/good%20first%20issue)
+
+Read our [Contributing Guide](https://github.com/SixHq/Overture/blob/main/CONTRIBUTING.md) to get started.
+
+---
+
+## 📄 License
+
+MIT © [Sixth](https://trysixth.com)
+
+---
+
+### Built with ❤️ by [Sixth](https://trysixth.com)
+
+[![Install Sixth for VS Code](https://img.shields.io/badge/VS%20Code-Install%20Sixth%20→-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=Sixth.sixth-ai)
+
+*For the ultimate Overture experience — zero setup, embedded canvas, deeper integration.*
+
+---
+
+**"The best time to shape the plan is before the first line of code is written."**
+
+[⬆ Back to top](#overture)
