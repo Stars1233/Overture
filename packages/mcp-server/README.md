@@ -2,7 +2,7 @@
 
 **Visual plan execution and approval workflow for AI coding agents.**
 
-![Overture Demo](https://firebasestorage.googleapis.com/v0/b/sixth-v2.appspot.com/o/0221%20(1).gif?alt=media&token=dd1b4db5-480a-4178-9cc4-3d1380ea4e57)
+![Overture Demo](https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExNjlpamJtaDBucnVsdGJqd3oxdG94OWdhNTYyazh4OWpucTE5YnF5ZCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/H14MYQfEAliJLvuayW/giphy.gif)
 
 ---
 
@@ -85,6 +85,31 @@ Open VS Code settings, search for "Cline MCP", and add this to your MCP servers 
 }
 ```
 
+### Sixth AI (VS Code Extension)
+
+Open the Sixth AI MCP settings file and add Overture:
+
+**File locations:**
+- **macOS:** `~/Library/Application Support/Code/User/globalStorage/sixth.sixth-ai/settings/sixth-mcp-settings.json`
+- **Windows:** `%APPDATA%\Code\User\globalStorage\sixth.sixth-ai\settings\sixth-mcp-settings.json`
+- **Linux:** `~/.config/Code/User/globalStorage/sixth.sixth-ai/settings/sixth-mcp-settings.json`
+
+Add this to the `mcpServers` object:
+
+```json
+{
+  "mcpServers": {
+    "overture": {
+      "command": "npx",
+      "args": ["overture-mcp"],
+      "disabled": false
+    }
+  }
+}
+```
+
+Restart VS Code for the changes to take effect.
+
 ### Global Installation (Optional)
 
 If you prefer to install Overture globally instead of using npx:
@@ -119,13 +144,77 @@ Once installed, give your agent any task. Overture will automatically open in yo
 
 ## Configuration
 
-You can customize Overture's behavior with environment variables:
+You can customize Overture's behavior using environment variables. Here's how to set them for each agent:
+
+### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OVERTURE_HTTP_PORT` | `3031` | Port for the web interface |
+| `OVERTURE_HTTP_PORT` | `3031` | Port for the web UI |
 | `OVERTURE_WS_PORT` | `3030` | Port for WebSocket communication |
-| `OVERTURE_AUTO_OPEN` | `true` | Whether to automatically open the browser |
+| `OVERTURE_AUTO_OPEN` | `true` | Set to `false` to prevent auto-opening browser |
+
+### Setting Environment Variables
+
+**Claude Code**
+
+```bash
+claude mcp add overture-mcp -e OVERTURE_HTTP_PORT=4000 -e OVERTURE_AUTO_OPEN=false -- npx overture-mcp
+```
+
+**Cursor** (`~/.cursor/mcp.json`)
+
+```json
+{
+  "mcpServers": {
+    "overture": {
+      "command": "npx",
+      "args": ["overture-mcp"],
+      "env": {
+        "OVERTURE_HTTP_PORT": "4000",
+        "OVERTURE_WS_PORT": "4001",
+        "OVERTURE_AUTO_OPEN": "false"
+      }
+    }
+  }
+}
+```
+
+**Cline & Sixth AI**
+
+Add the `env` object to your MCP server configuration:
+
+```json
+{
+  "mcpServers": {
+    "overture": {
+      "command": "npx",
+      "args": ["overture-mcp"],
+      "env": {
+        "OVERTURE_HTTP_PORT": "4000",
+        "OVERTURE_WS_PORT": "4001",
+        "OVERTURE_AUTO_OPEN": "false"
+      }
+    }
+  }
+}
+```
+
+**Global Installation (shell)**
+
+If you installed globally, set variables in your shell before running:
+
+```bash
+# macOS/Linux
+export OVERTURE_HTTP_PORT=4000
+export OVERTURE_AUTO_OPEN=false
+overture-mcp
+
+# Windows (PowerShell)
+$env:OVERTURE_HTTP_PORT="4000"
+$env:OVERTURE_AUTO_OPEN="false"
+overture-mcp
+```
 
 ---
 
