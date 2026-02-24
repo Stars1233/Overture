@@ -1,6 +1,6 @@
 {
   "name": "overture-mcp",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "MCP Server for Claude Code, Cursor, Cline, Copilot, Windsurf - Visual AI Agent Plan Execution, Approval Workflow, Plan Visualization, Agent Orchestration. See what your AI is thinking before it writes code. Works with Claude, GPT, Gemini, DeepSeek, Qwen. Alternative to blind AI coding.",
   "type": "module",
   "main": "dist/index.js",
