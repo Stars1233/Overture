@@ -46,7 +46,7 @@ export function startHttpServer(port: number): void {
   });
 
   // Proxy endpoint for MCP marketplace to avoid CORS issues
-  app.get('/api/mcp-marketplace', async (req, res) => {
+  app.get('/api/mcp-marketplace', async (_req, res) => {
     try {
       const response = await fetch('https://api.cline.bot/v1/mcp/marketplace');
       if (!response.ok) {
@@ -63,7 +63,7 @@ export function startHttpServer(port: number): void {
   app.use(express.static(staticPath));
 
   // SPA fallback - serve index.html for all routes
-  app.get('*', (req, res) => {
+  app.get('*', (_req, res) => {
     res.sendFile(path.join(staticPath, 'index.html'));
   });
 

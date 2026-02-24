@@ -47,7 +47,7 @@ class MultiProjectPlanStore {
   // Store previous plan state for diff calculation
   private previousPlanStates: Map<string, { nodes: PlanNode[]; edges: PlanEdge[] }> = new Map();
 
-  // Auto-save interval
+  // Auto-save interval (stored for potential cleanup)
   private autoSaveInterval: NodeJS.Timeout | null = null;
 
   constructor() {

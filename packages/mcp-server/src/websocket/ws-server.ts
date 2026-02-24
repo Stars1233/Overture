@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { WSMessage, WSClientMessage, ProjectContext, HistoryEntry } from '../types.js';
-import { multiProjectPlanStore } from '../store/plan-store.js';
+import { planStore, multiProjectPlanStore } from '../store/plan-store.js';
 import { historyStorage } from '../storage/history-storage.js';
 
 /**
