@@ -67,14 +67,21 @@ class WebSocketManager {
       if (plan) {
         this.send(ws, { type: 'plan_started', plan });
 
-        // Send all existing nodes
-        for (const node of planStore.getNodes()) {
-          this.send(ws, { type: 'node_added', node });
+        // Send all existing nodes (filter out decision nodes)
+        const allNodes = planStore.getNodes();
+        for (const node of allNodes) {
+          if (node.type !== 'decision') {
+            this.send(ws, { type: 'node_added', node });
+          }
         }
 
-        // Send all existing edges
+        // Send all existing edges (filter out edges involving decision nodes)
         for (const edge of planStore.getEdges()) {
-          this.send(ws, { type: 'edge_added', edge });
+          const fromNode = allNodes.find(n => n.id === edge.from);
+          const toNode = allNodes.find(n => n.id === edge.to);
+          if (fromNode?.type !== 'decision' && toNode?.type !== 'decision') {
+            this.send(ws, { type: 'edge_added', edge });
+          }
         }
 
         // Send ready status if applicable
@@ -174,12 +181,20 @@ class WebSocketManager {
           if (state?.plan) {
             this.send(ws, { type: 'plan_started', plan: state.plan, projectId: message.projectId });
 
+            // Send nodes (filter out decision nodes)
             for (const node of state.nodes) {
-              this.send(ws, { type: 'node_added', node, projectId: message.projectId });
+              if (node.type !== 'decision') {
+                this.send(ws, { type: 'node_added', node, projectId: message.projectId });
+              }
             }
 
+            // Send edges (filter out edges involving decision nodes)
             for (const edge of state.edges) {
-              this.send(ws, { type: 'edge_added', edge, projectId: message.projectId });
+              const fromNode = state.nodes.find(n => n.id === edge.from);
+              const toNode = state.nodes.find(n => n.id === edge.to);
+              if (fromNode?.type !== 'decision' && toNode?.type !== 'decision') {
+                this.send(ws, { type: 'edge_added', edge, projectId: message.projectId });
+              }
             }
 
             if (state.plan.status === 'ready') {
@@ -224,6 +239,14 @@ class WebSocketManager {
             client.projectId = state.projectId;
           }
 
+          // Filter out decision nodes and their edges
+          const filteredNodes = state.nodes.filter(n => n.type !== 'decision');
+          const filteredEdges = state.edges.filter(edge => {
+            const fromNode = state.nodes.find(n => n.id === edge.from);
+            const toNode = state.nodes.find(n => n.id === edge.to);
+            return fromNode?.type !== 'decision' && toNode?.type !== 'decision';
+          });
+
           // Send loaded plan data
           this.send(ws, {
             type: 'plan_loaded',
@@ -233,8 +256,8 @@ class WebSocketManager {
                 projectId: state.projectId,
                 workspacePath: state.workspacePath || ''
               },
-              nodes: state.nodes,
-              edges: state.edges,
+              nodes: filteredNodes,
+              edges: filteredEdges,
               fieldValues: state.fieldValues,
               selectedBranches: state.selectedBranches,
               nodeConfigs: state.nodeConfigs
