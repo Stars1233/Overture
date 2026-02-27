@@ -198,22 +198,27 @@ export class StreamingXMLParser {
           }
           break;
 
-        // Branch child elements
+        // Branch child elements (legacy support)
         case 'label':
           if (this.state.currentBranch) {
             this.state.currentBranch.label = text;
           }
           break;
 
+        // Pros and cons can be on branch (legacy) or directly on node (new format)
         case 'pros':
           if (this.state.currentBranch) {
             this.state.currentBranch.pros = text;
+          } else if (this.state.currentNode) {
+            this.state.currentNode.pros = text;
           }
           break;
 
         case 'cons':
           if (this.state.currentBranch) {
             this.state.currentBranch.cons = text;
+          } else if (this.state.currentNode) {
+            this.state.currentNode.cons = text;
           }
           break;
       }

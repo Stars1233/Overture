@@ -59,6 +59,9 @@ export interface PlanNode {
   complexity?: 'low' | 'medium' | 'high';
   expectedOutput?: string;
   risks?: string;
+  // Pros and cons for branch option nodes
+  pros?: string;
+  cons?: string;
   dynamicFields: DynamicField[];
   branches?: Branch[];
   selectedBranchId?: string;
@@ -68,6 +71,10 @@ export interface PlanNode {
   attachments?: FileAttachment[];
   metaInstructions?: string;
   mcpServers?: McpServer[];
+  // Branch detection from graph structure
+  isBranchPoint?: boolean;      // True if this node has multiple outgoing edges
+  branchTargetIds?: string[];   // IDs of nodes this branches to (the options)
+  branchSourceId?: string;      // ID of the branch point node this is a target of
 }
 
 export interface PlanEdge {

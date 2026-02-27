@@ -21,6 +21,109 @@ function generateProjectId(workspacePath: string): string {
 }
 
 /**
+ * Detect branch points from graph structure.
+ * A branch point is a node that has multiple outgoing edges.
+ * The target nodes become branch options.
+ */
+function detectBranchPointsFromGraph(nodes: PlanNode[], edges: PlanEdge[]): void {
+  // Build a map of outgoing edges per node
+  const outgoingEdgesMap = new Map<string, PlanEdge[]>();
+  for (const edge of edges) {
+    const existing = outgoingEdgesMap.get(edge.from) || [];
+    existing.push(edge);
+    outgoingEdgesMap.set(edge.from, existing);
+  }
+
+  // Find branch points (nodes with multiple outgoing edges)
+  for (const node of nodes) {
+    const outgoingEdges = outgoingEdgesMap.get(node.id) || [];
+
+    if (outgoingEdges.length > 1) {
+      // This node is a branch point
+      node.isBranchPoint = true;
+      node.branchTargetIds = outgoingEdges.map(e => e.to);
+
+      // Mark the target nodes as branch options
+      for (const edge of outgoingEdges) {
+        const targetNode = nodes.find(n => n.id === edge.to);
+        if (targetNode) {
+          targetNode.branchSourceId = node.id;
+        }
+      }
+
+      console.error(`[Overture] Detected branch point: ${node.id} -> [${node.branchTargetIds.join(', ')}]`);
+    }
+  }
+}
+
+/**
+ * Post-process parsed plan:
+ * 1. Filter out decision nodes (legacy format)
+ * 2. Rewire edges to skip decision nodes
+ * 3. Detect branch points from graph structure
+ */
+function postProcessPlan(projectId: string): void {
+  const nodes = multiProjectPlanStore.getNodes(projectId);
+  const edges = multiProjectPlanStore.getEdges(projectId);
+
+  // Find decision nodes to remove
+  const decisionNodes = nodes.filter(n => n.type === 'decision');
+
+  if (decisionNodes.length > 0) {
+    console.error(`[Overture] Found ${decisionNodes.length} decision node(s) to process`);
+
+    // For each decision node, rewire edges to skip it
+    for (const decisionNode of decisionNodes) {
+      // Find edges coming INTO the decision node
+      const incomingEdges = edges.filter(e => e.to === decisionNode.id);
+      // Find edges going OUT of the decision node
+      const outgoingEdges = edges.filter(e => e.from === decisionNode.id);
+
+      // Create new edges that bypass the decision node
+      for (const incoming of incomingEdges) {
+        for (const outgoing of outgoingEdges) {
+          const newEdge: PlanEdge = {
+            id: `e_bypass_${incoming.from}_${outgoing.to}`,
+            from: incoming.from,
+            to: outgoing.to
+          };
+          multiProjectPlanStore.addEdge(projectId, newEdge);
+          wsManager.broadcastToProject(projectId, { type: 'edge_added', edge: newEdge, projectId });
+          console.error(`[Overture] Created bypass edge: ${newEdge.from} -> ${newEdge.to}`);
+        }
+      }
+
+      // Remove the decision node and its edges
+      const result = multiProjectPlanStore.removeNode(projectId, decisionNode.id);
+      wsManager.broadcastToProject(projectId, {
+        type: 'node_removed',
+        nodeId: decisionNode.id,
+        newEdges: [],
+        removedEdgeIds: result.removedEdgeIds,
+        projectId
+      });
+      console.error(`[Overture] Removed decision node: ${decisionNode.id}`);
+    }
+  }
+
+  // Now detect branch points from the remaining graph structure
+  const remainingNodes = multiProjectPlanStore.getNodes(projectId);
+  const remainingEdges = multiProjectPlanStore.getEdges(projectId);
+  detectBranchPointsFromGraph(remainingNodes, remainingEdges);
+
+  // Broadcast updated nodes with branch point info
+  for (const node of remainingNodes) {
+    if (node.isBranchPoint || node.branchSourceId) {
+      wsManager.broadcastToProject(projectId, {
+        type: 'node_added',
+        node,
+        projectId
+      });
+    }
+  }
+}
+
+/**
  * Information about the next node to execute, including user inputs
  */
 export interface NextNodeInfo {
@@ -328,16 +431,28 @@ export function handleStreamPlanChunk(
         }
 
         case 'node':
+          // Always store the node
           multiProjectPlanStore.addNode(projectId, event.node);
-          wsManager.broadcastToProject(projectId, { type: 'node_added', node: event.node, projectId });
+          // Only broadcast non-decision nodes (decision nodes will be processed later)
+          if (event.node.type !== 'decision') {
+            wsManager.broadcastToProject(projectId, { type: 'node_added', node: event.node, projectId });
+          }
           break;
 
         case 'edge':
           multiProjectPlanStore.addEdge(projectId, event.edge);
-          wsManager.broadcastToProject(projectId, { type: 'edge_added', edge: event.edge, projectId });
+          // Don't broadcast edges yet - they may involve decision nodes
+          // They will be broadcast after post-processing
           break;
 
         case 'complete':
+          // Post-process to handle decision nodes and detect branch points
+          postProcessPlan(projectId);
+          // Broadcast remaining edges after post-processing
+          const finalEdges = multiProjectPlanStore.getEdges(projectId);
+          for (const edge of finalEdges) {
+            wsManager.broadcastToProject(projectId, { type: 'edge_added', edge, projectId });
+          }
           multiProjectPlanStore.updatePlanStatus(projectId, 'ready');
           wsManager.broadcastToProject(projectId, { type: 'plan_ready', projectId });
           currentParsers.delete(projectId);
@@ -422,18 +537,29 @@ export function handleSubmitPlan(
       }
 
       case 'node':
-        console.error('[Overture] Broadcasting node_added:', event.node.id);
+        console.error('[Overture] Adding node:', event.node.id, 'type:', event.node.type);
         multiProjectPlanStore.addNode(projectId, event.node);
-        wsManager.broadcastToProject(projectId, { type: 'node_added', node: event.node, projectId });
+        // Only broadcast non-decision nodes (decision nodes will be processed later)
+        if (event.node.type !== 'decision') {
+          wsManager.broadcastToProject(projectId, { type: 'node_added', node: event.node, projectId });
+        }
         break;
 
       case 'edge':
-        console.error('[Overture] Broadcasting edge_added:', event.edge.id);
+        console.error('[Overture] Adding edge:', event.edge.id);
         multiProjectPlanStore.addEdge(projectId, event.edge);
-        wsManager.broadcastToProject(projectId, { type: 'edge_added', edge: event.edge, projectId });
+        // Don't broadcast edges yet - they may involve decision nodes
         break;
 
       case 'complete':
+        console.error('[Overture] Plan parsing complete, running post-processing...');
+        // Post-process to handle decision nodes and detect branch points
+        postProcessPlan(projectId);
+        // Broadcast remaining edges after post-processing
+        const processedEdges = multiProjectPlanStore.getEdges(projectId);
+        for (const edge of processedEdges) {
+          wsManager.broadcastToProject(projectId, { type: 'edge_added', edge, projectId });
+        }
         console.error('[Overture] Broadcasting plan_ready');
         multiProjectPlanStore.updatePlanStatus(projectId, 'ready');
         wsManager.broadcastToProject(projectId, { type: 'plan_ready', projectId });
@@ -695,10 +821,37 @@ function findNextNode(
   const selectedBranches = multiProjectPlanStore.getSelectedBranches(projectId);
   const nodeConfigs = multiProjectPlanStore.getNodeConfigs(projectId);
 
+  const currentNode = nodes.find(n => n.id === currentNodeId);
+
   // Find edges going out from the current node
   const outgoingEdges = edges.filter(e => e.from === currentNodeId);
 
   if (outgoingEdges.length === 0) {
+    return null;
+  }
+
+  // NEW: If current node is a branch point, use the selected branch
+  if (currentNode?.isBranchPoint && outgoingEdges.length > 1) {
+    const selectedTargetId = selectedBranches[currentNodeId];
+    if (selectedTargetId) {
+      // Follow the selected branch only
+      const selectedNode = nodes.find(n => n.id === selectedTargetId);
+      if (selectedNode && selectedNode.type !== 'decision') {
+        const config = nodeConfigs[selectedNode.id] || { fieldValues: {}, attachments: [] };
+        return {
+          id: selectedNode.id,
+          title: selectedNode.title,
+          type: selectedNode.type,
+          description: selectedNode.description,
+          fieldValues: config.fieldValues || {},
+          attachments: config.attachments || [],
+          metaInstructions: config.metaInstructions,
+          mcpServers: formatMcpServersWithInstructions(config.mcpServers, provider),
+        };
+      }
+    }
+    // If no branch selected yet, return null (shouldn't execute without selection)
+    console.error(`[Overture] Branch point ${currentNodeId} has no selected branch`);
     return null;
   }
 
@@ -708,7 +861,19 @@ function findNextNode(
 
     if (!nextNode) continue;
 
-    // Check if this node belongs to a branch that wasn't selected
+    // Skip decision nodes (legacy support)
+    if (nextNode.type === 'decision') continue;
+
+    // NEW: Check if this node is a branch option that wasn't selected
+    if (nextNode.branchSourceId) {
+      const selectedTargetId = selectedBranches[nextNode.branchSourceId];
+      if (selectedTargetId && selectedTargetId !== nextNode.id) {
+        // This branch option wasn't selected, skip it
+        continue;
+      }
+    }
+
+    // LEGACY: Check if this node belongs to a branch that wasn't selected
     if (nextNode.branchParent && nextNode.branchId) {
       const selectedBranch = selectedBranches[nextNode.branchParent];
       if (selectedBranch && selectedBranch !== nextNode.branchId) {
