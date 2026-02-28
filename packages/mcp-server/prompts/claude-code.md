@@ -161,7 +161,6 @@ Each of these becomes a node on the visual canvas with full details, risks, and 
 | Tool | Input | Purpose |
 |------|-------|---------|
 | `submit_plan` | `{ plan_xml, workspace_path?, agent_type? }` | Submit complete XML plan |
-
 | `get_approval` | `{ project_id? }` | Wait for user approval (may return "pending" — call again) |
 | `update_node_status` | `{ node_id, status, output?, project_id? }` | Update execution progress |
 | `plan_completed` | `{ project_id? }` | Mark plan done |
@@ -580,6 +579,32 @@ See the full schema in `overture-instructions.md` under "Structured Output Forma
 
 ---
 
+## Handling Manual Approval (Skipping get_approval)
+
+Sometimes users may manually approve a plan by typing "yes", "approve", "go ahead", or similar directly in the terminal, bypassing the `get_approval` flow. When this happens:
+
+**What to do when the user manually approves:**
+
+If the user types approval directly in the chat/terminal instead of using the Overture UI:
+1. **Skip waiting on `get_approval`** — the user already said yes
+2. **Immediately call `update_node_status(first_node_id, "active")`** — Overture will auto-sync
+3. **Execute the first node** — use the plan you submitted
+4. **Continue normal execution flow** — call `update_node_status` as you complete each node
+
+```
+User: "looks good, start" (manual approval in terminal)
+You: → Find first node from your submitted plan
+     → Call update_node_status(first_node_id, "active")
+     → Overture auto-approves and syncs UI
+     → Execute the node
+     → Call update_node_status(first_node_id, "completed", output)
+     → Get nextNode from response, continue...
+```
+
+This ensures the visual progress stays in sync even when users bypass the formal approval flow.
+
+---
+
 ## Execution Workflow
 
 ```
@@ -985,9 +1010,7 @@ Users attach MCP servers because they want specific capabilities for specific no
 
 8. **Honor user additions**: Always check for and follow `metaInstructions`. Always read and use `attachments`.
 
-9. **Stream for long plans**: Use `stream_plan_chunk` for plans with many nodes so users see progress immediately.
-
-10. **Honor MCP servers**: When a node has `mcpServers`, follow its `formattedInstructions` precisely — this is the user's explicit request for extended capabilities.
+9. **Honor MCP servers**: When a node has `mcpServers`, follow its `formattedInstructions` precisely — this is the user's explicit request for extended capabilities.
 
 ---
 

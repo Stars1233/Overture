@@ -763,6 +763,15 @@ export function handleUpdateNodeStatus(
     return { success: false, message: `Node ${nodeId} not found`, projectId: effectiveProjectId };
   }
 
+  // AUTO-APPROVAL: If the plan hasn't been approved yet but the agent is calling update_node_status,
+  // it means the user manually approved in the terminal/chat (skipping get_approval flow).
+  // Auto-approve the plan so the UI stays in sync.
+  if (plan && (plan.status === 'ready' || plan.status === 'streaming')) {
+    console.error(`[Overture] Auto-approving plan - agent called update_node_status before get_approval (manual approval detected)`);
+    multiProjectPlanStore.updatePlanStatus(effectiveProjectId, 'executing');
+    wsManager.broadcastToProject(effectiveProjectId, { type: 'plan_approved', projectId: effectiveProjectId });
+  }
+
   // Parse structured output if present
   let structuredOutput: StructuredOutput | undefined;
   if (output) {

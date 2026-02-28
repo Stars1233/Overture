@@ -243,6 +243,31 @@ Mark the plan as failed with an error.
 </plan>
 ```
 
+## Handling Manual Approval (Skipping get_approval)
+
+Sometimes users may manually approve a plan by typing "yes", "approve", or similar directly in the terminal/chat interface, bypassing the `get_approval` flow. When this happens:
+
+1. **The plan is still rendered in the Overture UI** — the user can see it
+2. **But the UI doesn't know it was approved** — because `get_approval` wasn't called
+3. **The agent should proceed with execution** — by calling `update_node_status` on the first node
+
+**What to do when the user manually approves:**
+
+If the user types approval directly (skipping `get_approval`), immediately call `update_node_status` on the first node with status "active". Overture will automatically detect this and update the UI to show the plan as executing.
+
+```
+User: "yes, go ahead" (manual approval in chat)
+You: Call update_node_status(first_node_id, "active")
+     → Overture auto-approves and syncs UI
+     → Execute the node
+     → Call update_node_status(first_node_id, "completed", output)
+     → Continue with next nodes...
+```
+
+This ensures the visual progress stays in sync even when users bypass the formal approval flow.
+
+---
+
 ## Execution Flow
 
 After approval, execute like this:
