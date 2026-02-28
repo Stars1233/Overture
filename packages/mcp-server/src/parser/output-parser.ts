@@ -68,10 +68,8 @@ export function parseStructuredOutput(output: string): StructuredOutput | null {
     parentElement: null,
   };
 
-  let parseError = false;
-
   parser.onerror = () => {
-    parseError = true;
+    // Error handled silently - we extract what we can
   };
 
   parser.onopentag = (tag) => {
@@ -310,7 +308,6 @@ export function parseStructuredOutput(output: string): StructuredOutput | null {
   try {
     parser.write(xmlContent).close();
   } catch (err) {
-    parseError = true;
     console.error('[Overture] XML parse error:', err);
   }
 
