@@ -578,11 +578,21 @@ export function handleSubmitPlan(
   try {
     parser.write(planXml);
     parser.close();
-    const nodes = multiProjectPlanStore.getNodes(projectId);
-    const edges = multiProjectPlanStore.getEdges(projectId);
-    console.error('[Overture] Plan parsing complete. Nodes:', nodes.length, 'Edges:', edges.length);
-    console.error('[Overture] Project stored with ID:', projectId);
-    console.error('[Overture] All projects after submit:', Array.from(multiProjectPlanStore.getAllProjects().map(p => p.projectId)));
+  } catch (error) {
+    // XML parsing may have partially succeeded - we'll check below if nodes were rendered
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[Overture] XML parse error (may be partial):', errorMessage);
+  }
+
+  // Check if plan was actually rendered (nodes exist) - this is the real success criteria
+  const nodes = multiProjectPlanStore.getNodes(projectId);
+  const edges = multiProjectPlanStore.getEdges(projectId);
+  console.error('[Overture] Plan parsing result. Nodes:', nodes.length, 'Edges:', edges.length);
+  console.error('[Overture] Project stored with ID:', projectId);
+  console.error('[Overture] All projects after submit:', Array.from(multiProjectPlanStore.getAllProjects().map(p => p.projectId)));
+
+  // Success if we have nodes rendered - even if there were XML parsing issues
+  if (nodes.length > 0) {
     return {
       success: true,
       message: `Plan submitted successfully. IMPORTANT: Use project_id "${projectId}" in ALL subsequent calls (get_approval, update_node_status, etc.)`,
@@ -590,11 +600,14 @@ export function handleSubmitPlan(
       // Explicit field to make it clear what ID to use
       expected_project_id: projectId
     };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[Overture] Plan parsing failed:', message);
-    return { success: false, message, projectId };
   }
+
+  // Only fail if no nodes were rendered at all
+  return {
+    success: false,
+    message: 'No nodes were parsed from the plan XML. Please check the XML format.',
+    projectId
+  };
 }
 
 /**
