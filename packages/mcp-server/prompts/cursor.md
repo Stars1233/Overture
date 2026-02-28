@@ -435,6 +435,32 @@ See the full schema in `overture-instructions.md` under "Structured Output Forma
 
 ---
 
+## Handling Manual Approval (Skipping get_approval)
+
+Sometimes users may manually approve a plan by typing "yes", "approve", "go ahead", or similar directly in the chat, bypassing the `get_approval` flow. When this happens:
+
+**What to do when the user manually approves:**
+
+If the user types approval directly instead of using the Overture UI:
+1. **Skip waiting on `get_approval`** — the user already said yes
+2. **Immediately call `update_node_status(first_node_id, "active")`** — Overture will auto-sync
+3. **Execute the first node** — use the plan you submitted
+4. **Continue normal execution flow** — call `update_node_status` as you complete each node
+
+```
+User: "looks good, start" (manual approval in chat)
+You: → Find first node from your submitted plan
+     → Call update_node_status(first_node_id, "active")
+     → Overture auto-approves and syncs UI
+     → Execute the node
+     → Call update_node_status(first_node_id, "completed", output)
+     → Get nextNode from response, continue...
+```
+
+This ensures the visual progress stays in sync even when users bypass the formal approval flow.
+
+---
+
 ## Execution Workflow
 
 ```

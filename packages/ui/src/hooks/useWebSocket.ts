@@ -40,6 +40,7 @@ type MessageType =
   | { type: 'node_added'; node: PlanNode; projectId?: string }
   | { type: 'edge_added'; edge: PlanEdge; projectId?: string }
   | { type: 'plan_ready'; projectId?: string }
+  | { type: 'plan_approved'; projectId?: string }
   | { type: 'node_status_updated'; nodeId: string; status: PlanNode['status']; output?: string; structuredOutput?: PlanNode['structuredOutput']; projectId?: string }
   | { type: 'plan_completed'; projectId?: string }
   | { type: 'plan_failed'; error: string; projectId?: string }
@@ -204,6 +205,21 @@ export function useWebSocket() {
 
         // Also update legacy store
         updatePlanStatus('ready');
+        break;
+      }
+
+      case 'plan_approved': {
+        // Auto-approval: Agent called update_node_status before get_approval
+        // (user manually approved in terminal/chat, skipping UI approval flow)
+        console.log('[Overture] Plan auto-approved (manual approval detected)');
+
+        // Update multi-project store
+        if (projectId) {
+          multiProjectStore.getState().updateProjectPlanStatus(projectId, 'executing');
+        }
+
+        // Update legacy store - this hides requirements checklist and shows executing state
+        usePlanStore.getState().approvePlan();
         break;
       }
 
