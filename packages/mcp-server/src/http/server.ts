@@ -70,7 +70,7 @@ export function startHttpServer(port: number): void {
         return res.status(400).json({ error: 'fileName and contentBase64 are required' });
       }
 
-      const safeFileName = path.basename(fileName).replace(/[^\w.\-]/g, '_');
+      const safeFileName = path.basename(fileName).replace(/[^\w.-]/g, '_');
       const attachmentDir = path.join(os.homedir(), '.overture', 'attachments');
       await fsp.mkdir(attachmentDir, { recursive: true });
 
