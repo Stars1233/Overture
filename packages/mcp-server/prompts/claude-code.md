@@ -563,26 +563,99 @@ Before calling `update_node_status(node_id, "completed", output)`, verify:
 - [ ] Did I NOT do any work belonging to other nodes?
 - [ ] **Did I format the output using structured XML?** (See Structured Output Format in overture-instructions.md)
 
-### Structured Output (Recommended)
 
-When calling `update_node_status` with "completed", use structured XML output for better UI rendering:
+## Structured Output Format
+
+When completing a node, you can provide structured XML output that will be rendered in a rich, expandable UI. This is **optional** but **recommended** for better user experience.
+
+### XML Schema
 
 ```xml
 <execution_output>
-  <overview>Brief summary of what was done</overview>
+  <!-- Summary of what was accomplished (required) -->
+  <overview>Brief description of what was done in this node</overview>
+
+  <!-- Files that were modified -->
   <files_changed>
-    <file path="path/to/file.ts" lines_added="10" lines_removed="2" />
+    <file path="src/components/Button.tsx" lines_added="15" lines_removed="3">
+      <diff><![CDATA[
+@@ -10,3 +10,15 @@
+- const Button = () => {
++ const Button = ({ variant = 'primary' }) => {
+      ]]></diff>
+    </file>
   </files_changed>
+
+  <!-- New files created -->
   <files_created>
-    <file path="path/to/new-file.ts" lines="45" />
+    <file path="src/utils/helpers.ts" lines="42" />
   </files_created>
+
+  <!-- Files deleted -->
+  <files_deleted>
+    <file path="src/old-component.tsx" />
+  </files_deleted>
+
+  <!-- Packages installed -->
   <packages_installed>
-    <package name="package-name" version="1.0.0" />
+    <package name="zustand" version="4.5.0" dev="false" />
+    <package name="@types/node" version="20.0.0" dev="true" />
   </packages_installed>
+
+  <!-- MCP servers configured -->
+  <mcp_setup>
+    <server name="github" status="installed" />
+  </mcp_setup>
+
+  <!-- Web searches performed -->
+  <web_searches>
+    <search query="React 19 new features" results_used="3" />
+  </web_searches>
+
+  <!-- Tool calls made (summarized) -->
+  <tool_calls>
+    <tool name="Read" count="5" />
+    <tool name="Edit" count="3" />
+    <tool name="Bash" count="2" />
+  </tool_calls>
+
+  <!-- Preview/dev server URLs -->
+  <preview_urls>
+    <url type="dev_server">http://localhost:5173</url>
+  </preview_urls>
+
+  <!-- Warnings or notes -->
+  <notes>
+    <note type="warning">API key not configured, using mock data</note>
+    <note type="info">Consider adding error boundary</note>
+  </notes>
 </execution_output>
 ```
 
-See the full schema in `overture-instructions.md` under "Structured Output Format".
+### Usage Example
+
+When you call `update_node_status` with "completed" status, include the structured output:
+
+```
+update_node_status(n1, "completed", "<execution_output>
+  <overview>Created React component with TypeScript types</overview>
+  <files_created>
+    <file path=\"src/components/Header.tsx\" lines=\"45\" />
+    <file path=\"src/components/Header.test.tsx\" lines=\"28\" />
+  </files_created>
+  <packages_installed>
+    <package name=\"@testing-library/react\" version=\"14.0.0\" dev=\"true\" />
+  </packages_installed>
+</execution_output>")
+```
+
+### Guidelines
+
+1. **Always include `<overview>`** - A brief summary of what was accomplished
+2. **Include only relevant sections** - Don't add empty sections
+3. **Use CDATA for diffs** - Wrap diff content in `<![CDATA[...]]>` to avoid XML parsing issues
+4. **Note types**: Use `info` for suggestions, `warning` for potential issues, `error` for problems
+5. **Be concise** - Keep descriptions short but informative
 
 ---
 
