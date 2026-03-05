@@ -1,0 +1,74 @@
+<plan>
+  <metadata>
+    <title>Edge Pulsation Test Plan - Multi-Branch Scenario</title>
+    <agent>Claude Code (Principal QA)</agent>
+    <project_id>test-qa-001</project_id>
+  </metadata>
+
+  <node id="n1">
+    <title>Initial Setup</title>
+    <description>Set up test environment and dependencies</description>
+  </node>
+
+  <node id="n2">
+    <title>Environment Check (Branch Point)</title>
+    <description>Check which environment we should deploy to</description>
+  </node>
+
+  <!-- Branch 1: Production Path -->
+  <node id="n3a">
+    <title>Production Deployment</title>
+    <description>Deploy to production environment</description>
+  </node>
+
+  <node id="n4a">
+    <title>Production Tests</title>
+    <description>Run production-specific tests</description>
+  </node>
+
+  <!-- Branch 2: Staging Path -->
+  <node id="n3b">
+    <title>Staging Deployment</title>
+    <description>Deploy to staging environment</description>
+  </node>
+
+  <node id="n4b">
+    <title>Staging Tests</title>
+    <description>Run staging-specific tests</description>
+  </node>
+
+  <node id="n5">
+    <title>Nested Branch Point</title>
+    <description>Decide on monitoring strategy</description>
+  </node>
+
+  <!-- Nested Branch 1: Full Monitoring -->
+  <node id="n6a">
+    <title>Enable Full Monitoring</title>
+    <description>Set up comprehensive monitoring suite</description>
+  </node>
+
+  <!-- Nested Branch 2: Basic Monitoring -->
+  <node id="n6b">
+    <title>Enable Basic Monitoring</title>
+    <description>Set up basic monitoring only</description>
+  </node>
+
+  <node id="n7">
+    <title>Final Verification</title>
+    <description>Verify all deployments are successful</description>
+  </node>
+
+  <!-- Edges -->
+  <edge id="e1" from="n1" to="n2" />
+  <edge id="e2a" from="n2" to="n3a" />
+  <edge id="e2b" from="n2" to="n3b" />
+  <edge id="e3a" from="n3a" to="n4a" />
+  <edge id="e3b" from="n3b" to="n4b" />
+  <edge id="e4a" from="n4a" to="n5" />
+  <edge id="e4b" from="n4b" to="n5" />
+  <edge id="e5a" from="n5" to="n6a" />
+  <edge id="e5b" from="n5" to="n6b" />
+  <edge id="e6a" from="n6a" to="n7" />
+  <edge id="e6b" from="n6b" to="n7" />
+</plan>

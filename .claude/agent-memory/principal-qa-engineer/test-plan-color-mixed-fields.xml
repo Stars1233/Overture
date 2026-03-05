@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan title="Mixed Field Types with Color" agent="claude-code" prompt="Test color field alongside other field types">
+  <node id="test:1" type="task" title="Configure Application Settings" description="Set up application configuration">
+    <dynamic_field
+      id="field_app_name"
+      type="string"
+      name="app_name"
+      title="Application Name"
+      description="Enter the application name"
+      value="My App"
+      required="true"
+    />
+    <dynamic_field
+      id="field_theme_color"
+      type="color"
+      name="theme_color"
+      title="Theme Color"
+      description="Choose theme color"
+      value="#3b82f6"
+      required="true"
+    />
+    <dynamic_field
+      id="field_enable_dark_mode"
+      type="boolean"
+      name="dark_mode"
+      title="Enable Dark Mode"
+      description="Toggle dark mode"
+      value="true"
+      required="false"
+    />
+    <dynamic_field
+      id="field_max_users"
+      type="number"
+      name="max_users"
+      title="Max Users"
+      description="Maximum number of users"
+      value="100"
+      required="false"
+    />
+    <dynamic_field
+      id="field_api_key"
+      type="secret"
+      name="api_key"
+      title="API Key"
+      description="Your API key"
+      required="true"
+      setup_instructions="Get your API key from https://example.com/settings"
+    />
+    <dynamic_field
+      id="field_deployment"
+      type="select"
+      name="deployment_env"
+      title="Deployment Environment"
+      description="Select deployment environment"
+      options="development,staging,production"
+      value="development"
+      required="true"
+    />
+  </node>
+  <edge id="edge_1_2" from="test:1" to="test:2" />
+  <node id="test:2" type="task" title="Deploy Application" description="Deploy the configured application" />
+</plan>

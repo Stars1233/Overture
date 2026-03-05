@@ -1,7 +1,7 @@
 // Plan types matching the UI store
 export type NodeStatus = 'pending' | 'active' | 'completed' | 'failed' | 'skipped';
 export type NodeType = 'task' | 'decision';
-export type FieldType = 'string' | 'secret' | 'select' | 'boolean' | 'number' | 'file';
+export type FieldType = 'string' | 'secret' | 'select' | 'boolean' | 'number' | 'file' | 'question' | 'color';
 
 export interface DynamicField {
   id: string;
@@ -91,6 +91,8 @@ export interface Plan {
   prompt?: string;
   createdAt: string;
   status: 'streaming' | 'ready' | 'approved' | 'executing' | 'paused' | 'completed' | 'failed';
+  model?: string;      // e.g., 'claude-3-opus', 'gpt-4', 'claude-sonnet-4-20250514'
+  provider?: string;   // e.g., 'anthropic', 'openai', 'google'
 }
 
 export interface NodeConfig {
@@ -224,6 +226,7 @@ export interface FileChange {
 export interface FileCreated {
   path: string;
   lines?: number;
+  content?: string;  // File content for display in Monaco editor
 }
 
 export interface FileDeleted {
@@ -305,6 +308,14 @@ export type WSMessage =
   | { type: 'new_plan_created'; planId: string; projectId: string }
   | { type: 'plan_updated_incrementally'; operationCount: number; successCount: number; failCount: number; projectId: string }
   | { type: 'node_replaced'; oldNodeId: string; node: PlanNode; projectId: string }
+  // Single node detail update
+  | { type: 'node_detail_updated'; nodeId: string; updates: Partial<PlanNode>; projectId?: string }
+  // Batch node detail updates
+  | { type: 'nodes_detail_updated'; updates: Array<{ nodeId: string; updates: Partial<PlanNode> }>; projectId?: string }
+  // Node edit events (server -> client)
+  | { type: 'node_description_updated'; nodeId: string; description: string; projectId?: string }
+  // Plan settings events (server -> client)
+  | { type: 'plan_settings_updated'; planId: string; model?: string; provider?: string; projectId?: string }
   // Internal relay sync
   | { type: 'approval_granted'; projectId: string; fieldValues: Record<string, string>; selectedBranches: Record<string, string>; nodeConfigs: Record<string, NodeConfig> };
 
@@ -320,7 +331,7 @@ export type WSClientMessage =
   | { type: 'rerun_request'; nodeId: string; mode: 'single' | 'to-bottom'; projectId?: string }
   | { type: 'pause_execution'; projectId?: string }
   | { type: 'resume_execution'; projectId?: string }
-  | { type: 'insert_nodes'; afterNodeId: string; nodes: PlanNode[]; edges: PlanEdge[]; projectId?: string }
+  | { type: 'insert_nodes'; afterNodeId?: string; beforeNodeId?: string; nodes: PlanNode[]; edges: PlanEdge[]; projectId?: string }
   | { type: 'remove_node'; nodeId: string; projectId?: string }
   // New multi-project messages
   | { type: 'register_project'; projectContext: ProjectContext }
@@ -332,4 +343,10 @@ export type WSClientMessage =
   | { type: 'save_plan'; projectId?: string }
   // Plan update events
   | { type: 'request_plan_update'; projectId?: string }
-  | { type: 'create_new_plan'; projectId?: string };
+  | { type: 'create_new_plan'; projectId?: string }
+  // Node edit events
+  | { type: 'update_node_description'; nodeId: string; description: string; projectId?: string }
+  // Settings sync
+  | { type: 'sync_settings'; settings: { minNodesPerPlan: number } }
+  // Plan settings update (client -> server)
+  | { type: 'update_plan_settings'; planId: string; model?: string; provider?: string; projectId?: string };

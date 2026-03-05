@@ -12,6 +12,64 @@ import {
   OutputNote,
 } from '../types.js';
 
+/**
+ * Normalizes diff content for consistent display:
+ * - Removes leading/trailing empty lines
+ * - Normalizes line endings to \n
+ * - Preserves internal indentation
+ * - Removes common leading whitespace (dedent)
+ */
+function normalizeDiffContent(content: string): string {
+  if (!content) return '';
+
+  // Normalize line endings
+  let normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // Split into lines
+  let lines = normalized.split('\n');
+
+  // Remove leading empty lines
+  while (lines.length > 0 && lines[0].trim() === '') {
+    lines.shift();
+  }
+
+  // Remove trailing empty lines
+  while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+    lines.pop();
+  }
+
+  if (lines.length === 0) return '';
+
+  // Find common leading whitespace (for dedenting)
+  // Only consider non-empty lines that don't start with diff markers (+, -, @)
+  const nonDiffLines = lines.filter(
+    (line) => line.trim() !== '' && !/^[+\-@]/.test(line.trimStart())
+  );
+
+  let commonIndent = Infinity;
+  for (const line of nonDiffLines) {
+    const match = line.match(/^(\s*)/);
+    if (match) {
+      commonIndent = Math.min(commonIndent, match[1].length);
+    }
+  }
+
+  // Only dedent if we found a reasonable common indent
+  if (commonIndent > 0 && commonIndent !== Infinity && commonIndent <= 8) {
+    lines = lines.map((line) => {
+      // Preserve empty lines as-is
+      if (line.trim() === '') return '';
+      // Remove common indent
+      if (line.length >= commonIndent) {
+        return line.slice(commonIndent);
+      }
+      return line;
+    });
+  }
+
+  return lines.join('\n');
+}
+
 interface ParserState {
   output: StructuredOutput;
   currentElement: string | null;
@@ -198,7 +256,16 @@ export function parseStructuredOutput(output: string): StructuredOutput | null {
 
       case 'diff':
         if (state.currentFile) {
-          state.currentFile.diff = text;
+          // Preserve indentation in diffs - only trim trailing whitespace
+          // and normalize line endings
+          state.currentFile.diff = normalizeDiffContent(state.textBuffer);
+        }
+        break;
+
+      case 'content':
+        if (state.currentFileCreated) {
+          // Store file content for created files (for Monaco viewer)
+          state.currentFileCreated.content = normalizeDiffContent(state.textBuffer);
         }
         break;
 

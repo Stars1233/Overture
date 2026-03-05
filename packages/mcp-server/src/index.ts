@@ -23,6 +23,9 @@ import {
   handleRequestPlanUpdate,
   handleCreateNewPlan,
   handleGetUsageInstructions,
+  handleGetNodeInfo,
+  handleUpdateNodeDetail,
+  handleUpdateNodesDetail,
 } from './tools/handlers.js';
 import { NodeStatus } from './types.js';
 
@@ -127,6 +130,35 @@ const CreateNewPlanSchema = z.object({
 
 const GetUsageInstructionsSchema = z.object({
   agent_type: z.string().describe('The type of agent requesting instructions (claude-code, cline, cursor, sixth, gh_copilot)'),
+});
+
+const GetNodeInfoSchema = z.object({
+  node_id: z.string().describe('The ID of the node to get info for'),
+  project_id: z.string().optional().describe('Project ID (optional, uses current if not provided)'),
+});
+
+const UpdateNodeDetailSchema = z.object({
+  node_id: z.string().describe('The ID of the node to update'),
+  updates: z.object({
+    title: z.string().optional().describe('New title for the node'),
+    description: z.string().optional().describe('New description for the node'),
+    complexity: z.enum(['low', 'medium', 'high']).optional().describe('Task complexity level'),
+    expectedOutput: z.string().optional().describe('Expected output description'),
+    risks: z.string().optional().describe('Potential risks'),
+  }).describe('Partial updates to apply to the node'),
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+});
+
+const UpdateNodesDetailSchema = z.object({
+  updates: z.array(z.object({
+    node_id: z.string().describe('The ID of the node to update'),
+    title: z.string().optional().describe('New title for the node'),
+    description: z.string().optional().describe('New description for the node'),
+    complexity: z.enum(['low', 'medium', 'high']).optional().describe('Task complexity level'),
+    expectedOutput: z.string().optional().describe('Expected output description'),
+    risks: z.string().optional().describe('Potential risks'),
+  })).describe('Array of node updates to apply'),
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
 });
 
 // Tool definitions
@@ -401,6 +433,118 @@ const TOOLS = [
       required: ['agent_type'],
     },
   },
+  {
+    name: 'get_node_info',
+    description: 'Get detailed information about a specific node in the plan. Returns the node\'s title, type, status, description, field values, attachments, MCP servers, and branch information.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        node_id: {
+          type: 'string',
+          description: 'The ID of the node to get info for',
+        },
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
+      },
+      required: ['node_id'],
+    },
+  },
+  {
+    name: 'update_node_detail',
+    description: 'Update the details of a specific node in the plan. Use this to modify the title, description, complexity, expected output, or risks of a node. The UI will update in real-time.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        node_id: {
+          type: 'string',
+          description: 'The ID of the node to update',
+        },
+        updates: {
+          type: 'object',
+          description: 'Partial updates to apply to the node',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'New title for the node',
+            },
+            description: {
+              type: 'string',
+              description: 'New description for the node',
+            },
+            complexity: {
+              type: 'string',
+              enum: ['low', 'medium', 'high'],
+              description: 'Task complexity level',
+            },
+            expectedOutput: {
+              type: 'string',
+              description: 'Expected output description',
+            },
+            risks: {
+              type: 'string',
+              description: 'Potential risks',
+            },
+          },
+        },
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
+      },
+      required: ['node_id', 'updates'],
+    },
+  },
+  {
+    name: 'update_nodes_detail',
+    description: 'Update details for multiple nodes at once (batch operation). Use this to efficiently modify title, description, complexity, expected output, or risks for multiple nodes in a single call. More efficient than calling update_node_detail multiple times.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        updates: {
+          type: 'array',
+          description: 'Array of node updates to apply',
+          items: {
+            type: 'object',
+            properties: {
+              node_id: {
+                type: 'string',
+                description: 'The ID of the node to update',
+              },
+              title: {
+                type: 'string',
+                description: 'New title for the node',
+              },
+              description: {
+                type: 'string',
+                description: 'New description for the node',
+              },
+              complexity: {
+                type: 'string',
+                enum: ['low', 'medium', 'high'],
+                description: 'Task complexity level',
+              },
+              expectedOutput: {
+                type: 'string',
+                description: 'Expected output description',
+              },
+              risks: {
+                type: 'string',
+                description: 'Potential risks',
+              },
+            },
+            required: ['node_id'],
+          },
+        },
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
+      },
+      required: ['updates'],
+    },
+  },
 ];
 
 async function main() {
@@ -582,6 +726,52 @@ async function main() {
         case 'get_usage_instructions': {
           const parsed = GetUsageInstructionsSchema.parse(args);
           const result = await handleGetUsageInstructions(parsed.agent_type);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          };
+        }
+
+        case 'get_node_info': {
+          const parsed = GetNodeInfoSchema.parse(args);
+          const result = handleGetNodeInfo(parsed.node_id, parsed.project_id);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          };
+        }
+
+        case 'update_node_detail': {
+          const parsed = UpdateNodeDetailSchema.parse(args);
+          const result = handleUpdateNodeDetail(
+            parsed.node_id,
+            parsed.updates,
+            parsed.project_id
+          );
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          };
+        }
+
+        case 'update_nodes_detail': {
+          const parsed = UpdateNodesDetailSchema.parse(args);
+          const result = handleUpdateNodesDetail(
+            parsed.updates,
+            parsed.project_id
+          );
           return {
             content: [
               {

@@ -5,8 +5,9 @@ import { fileURLToPath } from 'url';
 import { StreamingXMLParser } from '../parser/xml-parser.js';
 import { parseStructuredOutput } from '../parser/output-parser.js';
 import { multiProjectPlanStore } from '../store/plan-store.js';
+import { settingsStore } from '../store/settings-store.js';
 import { wsManager } from '../websocket/ws-server.js';
-import { Plan, PlanNode, PlanEdge, NodeStatus, McpServer, ProjectContext, ResumePlanInfo, StructuredOutput } from '../types.js';
+import { Plan, PlanNode, PlanEdge, NodeStatus, McpServer, ProjectContext, ResumePlanInfo, StructuredOutput, FileAttachment } from '../types.js';
 
 // Track parsers per project
 const currentParsers: Map<string, StreamingXMLParser> = new Map();
@@ -598,6 +599,19 @@ export function handleSubmitPlan(
   console.error('[Overture] Plan parsing result. Nodes:', nodes.length, 'Edges:', edges.length);
   console.error('[Overture] Project stored with ID:', projectId);
   console.error('[Overture] All projects after submit:', Array.from(multiProjectPlanStore.getAllProjects().map(p => p.projectId)));
+
+  // Check minimum nodes requirement
+  const minNodesRequired = settingsStore.getMinNodesPerPlan();
+  if (nodes.length > 0 && nodes.length < minNodesRequired) {
+    console.error(`[Overture] Plan rejected: ${nodes.length} nodes < minimum ${minNodesRequired}`);
+    // Clear the plan data since it doesn't meet requirements
+    multiProjectPlanStore.clearProjectPlan(projectId);
+    return {
+      success: false,
+      message: `Plan rejected: Only ${nodes.length} node(s) provided, but minimum ${minNodesRequired} node(s) required. Please create a more detailed plan.`,
+      projectId
+    };
+  }
 
   // Success if we have nodes rendered - even if there were XML parsing issues
   if (nodes.length > 0) {
@@ -1511,5 +1525,290 @@ export async function handleGetUsageInstructions(agentType: string): Promise<{
     agentType: mappedType,
     message: `Failed to load instructions for ${mappedType}. Instructions file not found.`,
     availableAgents,
+  };
+}
+
+/**
+ * Get detailed information about a specific node in the plan.
+ * Returns node metadata, field values, attachments, MCP servers, and branch information.
+ */
+export function handleGetNodeInfo(
+  nodeId: string,
+  projectId?: string
+): {
+  success: boolean;
+  node?: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    description: string;
+    complexity?: string;
+    expectedOutput?: string;
+    risks?: string;
+    fieldValues: Record<string, string>;
+    attachments: FileAttachment[];
+    mcpServers: McpServer[];
+    metaInstructions?: string;
+    isBranchPoint?: boolean;
+    branchTargetIds?: string[];
+    selectedBranchId?: string;
+    branchSourceId?: string;
+    output?: string;
+  };
+  error?: string;
+  projectId?: string;
+} {
+  const effectiveProjectId = projectId || currentProjectId;
+
+  const nodes = multiProjectPlanStore.getNodes(effectiveProjectId);
+  const nodeConfigs = multiProjectPlanStore.getNodeConfigs(effectiveProjectId);
+  const selectedBranches = multiProjectPlanStore.getSelectedBranches(effectiveProjectId);
+
+  const node = nodes.find((n) => n.id === nodeId);
+
+  if (!node) {
+    return {
+      success: false,
+      error: `Node ${nodeId} not found in project ${effectiveProjectId}`,
+      projectId: effectiveProjectId,
+    };
+  }
+
+  // Get the node configuration (field values, attachments, etc.)
+  const config = nodeConfigs[nodeId] || { fieldValues: {}, attachments: [] };
+
+  // Determine selected branch ID for this node if it's a branch point
+  let selectedBranchId: string | undefined;
+  if (node.isBranchPoint) {
+    selectedBranchId = selectedBranches[nodeId];
+  }
+
+  return {
+    success: true,
+    node: {
+      id: node.id,
+      title: node.title,
+      type: node.type,
+      status: node.status,
+      description: node.description,
+      complexity: node.complexity,
+      expectedOutput: node.expectedOutput,
+      risks: node.risks,
+      fieldValues: config.fieldValues || {},
+      attachments: config.attachments || [],
+      mcpServers: config.mcpServers || [],
+      metaInstructions: config.metaInstructions,
+      isBranchPoint: node.isBranchPoint,
+      branchTargetIds: node.branchTargetIds,
+      selectedBranchId,
+      branchSourceId: node.branchSourceId,
+      output: node.output,
+    },
+    projectId: effectiveProjectId,
+  };
+}
+
+/**
+ * Node detail update structure for batch updates
+ */
+export interface NodeDetailUpdate {
+  node_id: string;
+  title?: string;
+  description?: string;
+  complexity?: 'low' | 'medium' | 'high';
+  expectedOutput?: string;
+  risks?: string;
+}
+
+/**
+ * Update multiple node details at once (batch operation).
+ * This allows agents to update title, description, complexity, expectedOutput, and risks
+ * for multiple nodes in a single call.
+ */
+export function handleUpdateNodesDetail(
+  updates: NodeDetailUpdate[],
+  projectId?: string
+): {
+  success: boolean;
+  updatedCount: number;
+  errors?: string[];
+  projectId?: string;
+} {
+  const effectiveProjectId = projectId || currentProjectId;
+  const state = multiProjectPlanStore.getState(effectiveProjectId);
+
+  if (!state) {
+    return {
+      success: false,
+      updatedCount: 0,
+      errors: [`No active plan found for project: ${effectiveProjectId}`],
+      projectId: effectiveProjectId,
+    };
+  }
+
+  const errors: string[] = [];
+  let updatedCount = 0;
+  const appliedUpdates: Array<{ nodeId: string; updates: Partial<PlanNode> }> = [];
+
+  for (const update of updates) {
+    const nodeIndex = state.nodes.findIndex(n => n.id === update.node_id);
+
+    if (nodeIndex < 0) {
+      errors.push(`Node ${update.node_id} not found`);
+      continue;
+    }
+
+    const node = state.nodes[nodeIndex];
+    const nodeUpdates: Partial<PlanNode> = {};
+
+    // Apply updates only for provided fields
+    if (update.title !== undefined) {
+      node.title = update.title;
+      nodeUpdates.title = update.title;
+    }
+    if (update.description !== undefined) {
+      node.description = update.description;
+      nodeUpdates.description = update.description;
+    }
+    if (update.complexity !== undefined) {
+      node.complexity = update.complexity;
+      nodeUpdates.complexity = update.complexity;
+    }
+    if (update.expectedOutput !== undefined) {
+      node.expectedOutput = update.expectedOutput;
+      nodeUpdates.expectedOutput = update.expectedOutput;
+    }
+    if (update.risks !== undefined) {
+      node.risks = update.risks;
+      nodeUpdates.risks = update.risks;
+    }
+
+    // Track what was updated for the WebSocket broadcast
+    if (Object.keys(nodeUpdates).length > 0) {
+      appliedUpdates.push({ nodeId: update.node_id, updates: nodeUpdates });
+      updatedCount++;
+    }
+  }
+
+  // Broadcast all updates in a single message
+  if (appliedUpdates.length > 0) {
+    wsManager.broadcastToProject(effectiveProjectId, {
+      type: 'nodes_detail_updated',
+      updates: appliedUpdates,
+      projectId: effectiveProjectId,
+    });
+    console.error(`[Overture] Updated details for ${updatedCount} node(s) in project ${effectiveProjectId}`);
+  }
+
+  return {
+    success: errors.length === 0,
+    updatedCount,
+    errors: errors.length > 0 ? errors : undefined,
+    projectId: effectiveProjectId,
+  };
+}
+
+/**
+ * Update a single node's details.
+ * This allows agents to update title, description, complexity, expectedOutput, and risks
+ * for a specific node.
+ */
+export function handleUpdateNodeDetail(
+  nodeId: string,
+  updates: {
+    title?: string;
+    description?: string;
+    complexity?: 'low' | 'medium' | 'high';
+    expectedOutput?: string;
+    risks?: string;
+  },
+  projectId?: string
+): {
+  success: boolean;
+  message: string;
+  node?: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    description: string;
+    complexity?: string;
+    expectedOutput?: string;
+    risks?: string;
+  };
+  projectId?: string;
+} {
+  const effectiveProjectId = projectId || currentProjectId;
+  const state = multiProjectPlanStore.getState(effectiveProjectId);
+
+  if (!state) {
+    return {
+      success: false,
+      message: `No active plan found for project: ${effectiveProjectId}`,
+      projectId: effectiveProjectId,
+    };
+  }
+
+  const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
+
+  if (nodeIndex < 0) {
+    return {
+      success: false,
+      message: `Node ${nodeId} not found in project ${effectiveProjectId}`,
+      projectId: effectiveProjectId,
+    };
+  }
+
+  const node = state.nodes[nodeIndex];
+  const nodeUpdates: Partial<PlanNode> = {};
+
+  // Apply updates only for provided fields
+  if (updates.title !== undefined) {
+    node.title = updates.title;
+    nodeUpdates.title = updates.title;
+  }
+  if (updates.description !== undefined) {
+    node.description = updates.description;
+    nodeUpdates.description = updates.description;
+  }
+  if (updates.complexity !== undefined) {
+    node.complexity = updates.complexity;
+    nodeUpdates.complexity = updates.complexity;
+  }
+  if (updates.expectedOutput !== undefined) {
+    node.expectedOutput = updates.expectedOutput;
+    nodeUpdates.expectedOutput = updates.expectedOutput;
+  }
+  if (updates.risks !== undefined) {
+    node.risks = updates.risks;
+    nodeUpdates.risks = updates.risks;
+  }
+
+  // Broadcast the update
+  if (Object.keys(nodeUpdates).length > 0) {
+    wsManager.broadcastToProject(effectiveProjectId, {
+      type: 'node_detail_updated',
+      nodeId,
+      updates: nodeUpdates,
+      projectId: effectiveProjectId,
+    });
+    console.error(`[Overture] Updated details for node ${nodeId} in project ${effectiveProjectId}`);
+  }
+
+  return {
+    success: true,
+    message: `Node ${nodeId} updated successfully`,
+    node: {
+      id: node.id,
+      title: node.title,
+      type: node.type,
+      status: node.status,
+      description: node.description,
+      complexity: node.complexity,
+      expectedOutput: node.expectedOutput,
+      risks: node.risks,
+    },
+    projectId: effectiveProjectId,
   };
 }

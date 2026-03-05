@@ -12,6 +12,8 @@ interface RequirementItem {
   label: string;
   description?: string;
   isComplete: boolean;
+  isOptional?: boolean;
+  value?: string;
 }
 
 export function RequirementsChecklist() {
@@ -107,6 +109,9 @@ export function RequirementsChecklist() {
     // ALL fields - required or not
     const dynamicFields = node.dynamicFields || [];
     for (const field of dynamicFields) {
+      const isRequired = field.required === true;
+      const hasValue = !!field.value;
+
       requirements.push({
         id: `${node.id}-field-${field.id}`,
         nodeId: node.id,
@@ -115,9 +120,11 @@ export function RequirementsChecklist() {
         type: 'field',
         label: field.title,
         description: field.description,
-        // For required fields: complete when has value
-        // For optional fields: always complete (they're optional)
-        isComplete: field.required ? !!field.value : true,
+        // Required fields: complete when has value
+        // Optional fields: complete when has value (but not required)
+        isComplete: hasValue,
+        isOptional: !isRequired,
+        value: field.value,
       });
     }
 
@@ -144,10 +151,16 @@ export function RequirementsChecklist() {
     return null;
   }
 
+  // Only required items (non-optional) count toward completion progress
+  const requiredItems = requirements.filter(r => !r.isOptional);
+  const completedRequiredCount = requiredItems.filter(r => r.isComplete).length;
+  const totalRequiredCount = requiredItems.length;
+  const allRequiredComplete = totalRequiredCount === 0 || completedRequiredCount === totalRequiredCount;
+  const progress = totalRequiredCount > 0 ? (completedRequiredCount / totalRequiredCount) * 100 : 100;
+
+  // For display, show all items completed vs total
   const completedCount = requirements.filter(r => r.isComplete).length;
   const totalCount = requirements.length;
-  const allComplete = completedCount === totalCount;
-  const progress = (completedCount / totalCount) * 100;
 
   const handleItemClick = (nodeId: string, planId: string) => {
     setSelectedNodeId(nodeId, planId);
@@ -168,7 +181,7 @@ export function RequirementsChecklist() {
             </h3>
             <span className={clsx(
               'text-xs font-medium px-2 py-0.5 rounded-full',
-              allComplete
+              allRequiredComplete
                 ? 'bg-accent-green/20 text-accent-green'
                 : 'bg-accent-yellow/20 text-accent-yellow'
             )}>
@@ -181,7 +194,7 @@ export function RequirementsChecklist() {
             <motion.div
               className={clsx(
                 'h-full rounded-full',
-                allComplete ? 'bg-accent-green' : 'bg-accent-blue'
+                allRequiredComplete ? 'bg-accent-green' : 'bg-accent-blue'
               )}
               initial={{ width: 0 }}
               animate={{ width: `${progress}%` }}
@@ -213,8 +226,10 @@ export function RequirementsChecklist() {
                 <div className="mt-0.5 flex-shrink-0">
                   {req.isComplete ? (
                     <CheckCircle2 className="w-4 h-4 text-accent-green" />
+                  ) : req.isOptional ? (
+                    <Circle className="w-4 h-4 text-text-muted/50" />
                   ) : (
-                    <Circle className="w-4 h-4 text-text-muted" />
+                    <Circle className="w-4 h-4 text-accent-yellow" />
                   )}
                 </div>
 
@@ -222,22 +237,39 @@ export function RequirementsChecklist() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     {req.type === 'field' ? (
-                      <FormInput className="w-3 h-3 text-accent-blue flex-shrink-0" />
+                      <FormInput className={clsx(
+                        'w-3 h-3 flex-shrink-0',
+                        req.isOptional ? 'text-text-muted' : 'text-accent-blue'
+                      )} />
                     ) : (
                       <GitBranch className="w-3 h-3 text-accent-purple flex-shrink-0" />
                     )}
                     <span className={clsx(
                       'text-sm font-medium truncate',
                       req.isComplete
-                        ? 'text-text-muted line-through'
-                        : 'text-text-primary'
+                        ? 'text-text-muted'
+                        : req.isOptional
+                          ? 'text-text-secondary'
+                          : 'text-text-primary'
                     )}>
                       {req.label}
                     </span>
+                    {req.isOptional && (
+                      <span className="text-[10px] text-text-muted/70 flex-shrink-0">
+                        (optional)
+                      </span>
+                    )}
                   </div>
-                  <p className="text-xs text-text-muted mt-0.5 truncate">
-                    {req.nodeTitle}
-                  </p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-xs text-text-muted truncate">
+                      {req.nodeTitle}
+                    </p>
+                    {req.value && (
+                      <span className="text-[10px] text-accent-green truncate max-w-[100px]">
+                        {req.value}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Arrow indicator */}
@@ -253,7 +285,7 @@ export function RequirementsChecklist() {
         </div>
 
         {/* Footer hint */}
-        {!allComplete && (
+        {!allRequiredComplete && (
           <div className="px-4 py-2 border-t border-border bg-surface-raised/30">
             <p className="text-[10px] text-text-muted text-center">
               Click an item to open its details
@@ -262,7 +294,7 @@ export function RequirementsChecklist() {
         )}
 
         {/* All complete message */}
-        {allComplete && (
+        {allRequiredComplete && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

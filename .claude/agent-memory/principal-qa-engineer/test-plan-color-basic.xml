@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan title="Color Field Basic Test" agent="claude-code" prompt="Test color picker rendering and interaction">
+  <node id="test:1" type="task" title="Configure Theme Color" description="Select a theme color for the application">
+    <dynamic_field
+      id="field_theme_color"
+      type="color"
+      name="theme_color"
+      title="Theme Color"
+      description="Choose the primary theme color"
+      value="#3b82f6"
+      required="true"
+    />
+  </node>
+  <node id="test:2" type="task" title="Set Accent Color" description="Choose an accent color">
+    <dynamic_field
+      id="field_accent_color"
+      type="color"
+      name="accent_color"
+      title="Accent Color"
+      description="Choose a secondary accent color"
+      value="#10b981"
+      required="false"
+    />
+  </node>
+  <edge id="edge_1_2" from="test:1" to="test:2" />
+</plan>

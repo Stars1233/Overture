@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan id="convergence-test-001" title="Convergence Plan for Context Menu" agent="qa-tester">
+  <node id="A" title="Path A Start" description="Parallel task A"/>
+  <node id="B" title="Path B Start" description="Parallel task B"/>
+  <node id="C" title="Merge Point" description="Combines A and B"/>
+  <node id="D" title="Continue" description="After merge"/>
+
+  <edge from="A" to="C"/>
+  <edge from="B" to="C"/>
+  <edge from="C" to="D"/>
+</plan>

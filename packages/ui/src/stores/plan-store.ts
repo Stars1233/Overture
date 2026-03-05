@@ -3,7 +3,7 @@ import { create } from 'zustand';
 // Types for our plan data
 export type NodeStatus = 'pending' | 'active' | 'completed' | 'failed' | 'skipped';
 export type NodeType = 'task' | 'decision';
-export type FieldType = 'string' | 'secret' | 'select' | 'boolean' | 'number' | 'file';
+export type FieldType = 'string' | 'secret' | 'select' | 'boolean' | 'number' | 'file' | 'question' | 'color';
 
 export interface DynamicField {
   id: string;
@@ -63,6 +63,7 @@ export interface FileChange {
 export interface FileCreated {
   path: string;
   lines?: number;
+  content?: string;  // File content for display in Monaco editor
 }
 
 export interface FileDeleted {
@@ -153,6 +154,8 @@ export interface Plan {
   prompt?: string;
   createdAt: string;
   status: 'streaming' | 'ready' | 'approved' | 'executing' | 'paused' | 'completed' | 'failed';
+  model?: string;      // e.g., 'claude-3-opus', 'gpt-4', 'claude-sonnet-4-20250514'
+  provider?: string;   // e.g., 'anthropic', 'openai', 'google'
 }
 
 export interface NodeConfig {
@@ -195,6 +198,7 @@ interface PlanState {
   // Plan operations
   setPlan: (plan: Plan) => void;
   updatePlanStatus: (status: Plan['status'], planId?: string) => void;
+  updatePlanSettings: (planId: string, settings: { model?: string; provider?: string }) => void;
 
   // Node/Edge operations (with optional planId for multi-plan support)
   addNode: (node: PlanNode, planId?: string) => void;
@@ -238,6 +242,14 @@ interface PlanState {
 
   // Node removal
   removeNode: (nodeId: string, planId?: string) => void;
+
+  // Node reordering (swap adjacent nodes)
+  swapNodes: (nodeId1: string, nodeId2: string, planId?: string) => void;
+  getAdjacentNodeIds: (nodeId: string, planId?: string) => { prevNodeId: string | null; nextNodeId: string | null };
+
+  // Insert before
+  pendingInsertBefore: { beforeNodeId: string } | null;
+  setPendingInsertBefore: (beforeNodeId: string | null) => void;
 }
 
 // Helper to find/update plan data
@@ -358,6 +370,18 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       plans: updatePlanData(state.plans, planId, (data) => ({
         ...data,
         plan: { ...data.plan, status },
+      })),
+    })),
+
+  updatePlanSettings: (planId, settings) =>
+    set((state) => ({
+      plans: updatePlanData(state.plans, planId, (data) => ({
+        ...data,
+        plan: {
+          ...data.plan,
+          model: settings.model !== undefined ? settings.model : data.plan.model,
+          provider: settings.provider !== undefined ? settings.provider : data.plan.provider,
+        },
       })),
     })),
 
@@ -733,4 +757,104 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       }),
       selectedNodeId: get().selectedNodeId === nodeId ? null : get().selectedNodeId,
     })),
+
+  // Node reordering - swap two adjacent nodes by updating their edges
+  swapNodes: (nodeId1, nodeId2, planId) =>
+    set((state) => ({
+      plans: updatePlanData(state.plans, planId, (data) => {
+        // Find all edges in the plan
+        const edges = data.edges;
+
+        // Find edges connecting node1 to node2 (they should be adjacent)
+        const edgeBetween = edges.find(
+          e => (e.from === nodeId1 && e.to === nodeId2) || (e.from === nodeId2 && e.to === nodeId1)
+        );
+
+        if (!edgeBetween) {
+          // Nodes are not adjacent, cannot swap
+          console.warn('[swapNodes] Nodes are not adjacent, cannot swap');
+          return data;
+        }
+
+        // Determine which node comes first
+        const firstNodeId = edgeBetween.from;
+        const secondNodeId = edgeBetween.to;
+
+        // Find edges pointing TO the first node (predecessors)
+        const predecessorEdges = edges.filter(e => e.to === firstNodeId);
+        // Find edges pointing FROM the second node (successors)
+        const successorEdges = edges.filter(e => e.from === secondNodeId);
+
+        // Build new edges:
+        // 1. Predecessors now point to second node
+        // 2. Second node points to first node
+        // 3. First node points to successors
+
+        const newEdges: PlanEdge[] = [];
+
+        // Keep edges that don't involve these two nodes
+        for (const e of edges) {
+          const involvesFirst = e.from === firstNodeId || e.to === firstNodeId;
+          const involvesSecond = e.from === secondNodeId || e.to === secondNodeId;
+          if (!involvesFirst && !involvesSecond) {
+            newEdges.push(e);
+          }
+        }
+
+        // Predecessors -> second node
+        for (const e of predecessorEdges) {
+          newEdges.push({
+            id: `edge_${e.from}_${secondNodeId}`,
+            from: e.from,
+            to: secondNodeId,
+          });
+        }
+
+        // Second node -> first node (reversed direction)
+        newEdges.push({
+          id: `edge_${secondNodeId}_${firstNodeId}`,
+          from: secondNodeId,
+          to: firstNodeId,
+        });
+
+        // First node -> successors
+        for (const e of successorEdges) {
+          newEdges.push({
+            id: `edge_${firstNodeId}_${e.to}`,
+            from: firstNodeId,
+            to: e.to,
+          });
+        }
+
+        return {
+          ...data,
+          edges: newEdges,
+        };
+      }),
+    })),
+
+  // Get adjacent node IDs (for move up/down)
+  getAdjacentNodeIds: (nodeId, planId) => {
+    const state = get();
+    const index = findPlanIndex(state.plans, planId);
+    if (index < 0) return { prevNodeId: null, nextNodeId: null };
+
+    const { edges } = state.plans[index];
+
+    // Find the node that points TO this node (predecessor)
+    const predecessorEdge = edges.find(e => e.to === nodeId);
+    const prevNodeId = predecessorEdge?.from || null;
+
+    // Find the node that this node points TO (successor)
+    const successorEdge = edges.find(e => e.from === nodeId);
+    const nextNodeId = successorEdge?.to || null;
+
+    return { prevNodeId, nextNodeId };
+  },
+
+  // Insert before
+  pendingInsertBefore: null,
+
+  setPendingInsertBefore: (beforeNodeId) =>
+    set({ pendingInsertBefore: beforeNodeId ? { beforeNodeId } : null }),
 }));

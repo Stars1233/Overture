@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan id="branch-test-001" title="Branch Plan for Context Menu" agent="qa-tester">
+  <node id="1" title="Start" description="Initial task"/>
+  <node id="2" title="Branch Point" description="Choose implementation">
+    <branches>
+      <branch id="b1" label="React Approach">
+        <description>Use React hooks</description>
+        <pros>Modern, type-safe</pros>
+        <cons>Larger bundle</cons>
+      </branch>
+      <branch id="b2" label="Vanilla JS Approach">
+        <description>Use plain JavaScript</description>
+        <pros>Smaller bundle</pros>
+        <cons>More boilerplate</cons>
+      </branch>
+    </branches>
+  </node>
+  <node id="3" branchParent="2" branchId="b1" title="Install React deps" description="npm install react"/>
+  <node id="4" branchParent="2" branchId="b2" title="Setup vanilla JS" description="Create index.js"/>
+  <node id="5" title="Test implementation" description="Run tests"/>
+
+  <edge from="1" to="2"/>
+  <edge from="2" to="3"/>
+  <edge from="2" to="4"/>
+  <edge from="3" to="5"/>
+  <edge from="4" to="5"/>
+</plan>

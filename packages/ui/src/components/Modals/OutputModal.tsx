@@ -1,9 +1,10 @@
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, FileCode, Package, Server, Search, Wrench, ExternalLink, AlertCircle, Info, AlertTriangle, Plus, Minus, FileText, Trash2 } from 'lucide-react';
-import { StructuredOutput } from '@/stores/plan-store';
+import { X, FileCode, Package, Server, Search, Wrench, ExternalLink, AlertCircle, Info, AlertTriangle, Plus, Minus, FileText, Trash2, Eye } from 'lucide-react';
+import { StructuredOutput, FileChange, FileCreated } from '@/stores/plan-store';
 import { clsx } from 'clsx';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { MonacoViewerModal, FileViewerMode } from './MonacoViewerModal';
 
 interface OutputModalProps {
   isOpen: boolean;
@@ -89,6 +90,17 @@ function ExpandableSection({
   );
 }
 
+// File viewer state interface
+interface FileViewerState {
+  isOpen: boolean;
+  filePath: string;
+  content?: string;
+  diff?: string;
+  mode: FileViewerMode;
+  linesAdded?: number;
+  linesRemoved?: number;
+}
+
 export function OutputModal({
   isOpen,
   onClose,
@@ -96,6 +108,40 @@ export function OutputModal({
   output,
   structuredOutput,
 }: OutputModalProps) {
+  // File viewer modal state
+  const [fileViewer, setFileViewer] = useState<FileViewerState>({
+    isOpen: false,
+    filePath: '',
+    mode: 'created',
+  });
+
+  // Handler for viewing changed files
+  const handleViewChangedFile = useCallback((file: FileChange) => {
+    setFileViewer({
+      isOpen: true,
+      filePath: file.path,
+      diff: file.diff,
+      mode: 'changed',
+      linesAdded: file.linesAdded,
+      linesRemoved: file.linesRemoved,
+    });
+  }, []);
+
+  // Handler for viewing created files
+  const handleViewCreatedFile = useCallback((file: FileCreated) => {
+    setFileViewer({
+      isOpen: true,
+      filePath: file.path,
+      content: file.content,
+      mode: 'created',
+    });
+  }, []);
+
+  // Close file viewer
+  const handleCloseViewer = useCallback(() => {
+    setFileViewer((prev) => ({ ...prev, isOpen: false }));
+  }, []);
+
   const hasStructuredOutput = structuredOutput && Object.keys(structuredOutput).filter(k => k !== 'raw').length > 0;
 
   return createPortal(
@@ -202,6 +248,15 @@ export function OutputModal({
                                       {file.linesRemoved}
                                     </span>
                                   )}
+                                  {file.diff && (
+                                    <button
+                                      onClick={() => handleViewChangedFile(file)}
+                                      className="p-1 rounded hover:bg-surface transition-colors text-text-muted hover:text-accent-blue"
+                                      title="View in full editor"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                               {file.diff && (
@@ -239,11 +294,22 @@ export function OutputModal({
                       >
                         <div className="space-y-1">
                           {structuredOutput.filesCreated.map((file, i) => (
-                            <div key={i} className="flex items-center justify-between py-1.5 px-2 rounded bg-surface-raised">
+                            <div key={i} className="flex items-center justify-between py-1.5 px-2 rounded bg-surface-raised hover:bg-surface transition-colors">
                               <code className="text-xs text-text-primary font-mono">{file.path}</code>
-                              {file.lines !== undefined && (
-                                <span className="text-xs text-text-muted">{file.lines} lines</span>
-                              )}
+                              <div className="flex items-center gap-2">
+                                {file.lines !== undefined && (
+                                  <span className="text-xs text-text-muted">{file.lines} lines</span>
+                                )}
+                                {file.content && (
+                                  <button
+                                    onClick={() => handleViewCreatedFile(file)}
+                                    className="p-1 rounded hover:bg-surface-raised transition-colors text-text-muted hover:text-accent-green"
+                                    title="View file content"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -418,6 +484,18 @@ export function OutputModal({
             </div>
           </motion.div>
           </div>
+
+          {/* Monaco File Viewer Modal */}
+          <MonacoViewerModal
+            isOpen={fileViewer.isOpen}
+            onClose={handleCloseViewer}
+            filePath={fileViewer.filePath}
+            content={fileViewer.content}
+            diff={fileViewer.diff}
+            mode={fileViewer.mode}
+            linesAdded={fileViewer.linesAdded}
+            linesRemoved={fileViewer.linesRemoved}
+          />
         </>
       )}
     </AnimatePresence>,

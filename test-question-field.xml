@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan id="test-question-field-001" title="Test Question Field Type" agent="qa-test">
+  <node
+    id="node1"
+    type="task"
+    title="Question with Dropdown Options"
+    description="Test question field that renders as dropdown when options are provided">
+    <dynamic_field
+      id="q1"
+      type="question"
+      name="preferred_database"
+      title="Which database do you prefer?"
+      description="Select your preferred database system"
+      options="PostgreSQL,MySQL,MongoDB,SQLite"
+      required="true"
+    />
+  </node>
+
+  <node
+    id="node2"
+    type="task"
+    title="Question with Free-form Input"
+    description="Test question field that renders as text input when no options provided">
+    <dynamic_field
+      id="q2"
+      type="question"
+      name="custom_requirement"
+      title="Any specific requirements?"
+      description="Describe any custom requirements you have"
+      required="false"
+    />
+  </node>
+
+  <node
+    id="node3"
+    type="task"
+    title="Required Question with Empty Options"
+    description="Test edge case with empty options string">
+    <dynamic_field
+      id="q3"
+      type="question"
+      name="edge_case_empty"
+      title="Edge case: empty options"
+      description="This has options='' which should behave like no options"
+      options=""
+      required="true"
+    />
+  </node>
+
+  <node
+    id="node4"
+    type="task"
+    title="Question with Single Option"
+    description="Test edge case with only one option">
+    <dynamic_field
+      id="q4"
+      type="question"
+      name="edge_case_single"
+      title="Edge case: single option"
+      description="This has only one option"
+      options="OnlyOption"
+      required="false"
+    />
+  </node>
+
+  <node
+    id="node5"
+    type="task"
+    title="Question with Special Characters"
+    description="Test options with special characters and spaces">
+    <dynamic_field
+      id="q5"
+      type="question"
+      name="special_chars"
+      title="Select deployment target"
+      description="Options include special characters"
+      options="AWS (Amazon),Google Cloud Platform,Microsoft Azure,On-premise/Private,Kubernetes (k8s)"
+      required="false"
+    />
+  </node>
+
+  <node
+    id="node6"
+    type="task"
+    title="Mixed Field Types"
+    description="Test question field alongside other field types to ensure no interference">
+    <dynamic_field
+      id="q6_question"
+      type="question"
+      name="framework"
+      title="Preferred Framework?"
+      options="React,Vue,Angular,Svelte"
+      required="true"
+    />
+    <dynamic_field
+      id="q6_string"
+      type="string"
+      name="project_name"
+      title="Project Name"
+      required="true"
+    />
+    <dynamic_field
+      id="q6_select"
+      type="select"
+      name="environment"
+      title="Environment"
+      options="Development,Staging,Production"
+      required="true"
+    />
+    <dynamic_field
+      id="q6_boolean"
+      type="boolean"
+      name="use_typescript"
+      title="Use TypeScript?"
+      required="false"
+    />
+  </node>
+
+  <edge from="node1" to="node2" />
+  <edge from="node2" to="node3" />
+  <edge from="node3" to="node4" />
+  <edge from="node4" to="node5" />
+  <edge from="node5" to="node6" />
+</plan>

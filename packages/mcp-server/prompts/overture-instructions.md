@@ -20,7 +20,18 @@ These rules are mandatory and must never be broken:
 ## XML Plan Schema
 
 ```xml
-<plan id="unique_id" title="Plan Title" agent="your-agent-name">
+<plan id="unique_id" title="Plan Title" agent="your-agent-name" model="model-id" provider="provider-name">
+  <!-- Plan Attributes:
+       - id: Unique identifier for the plan
+       - title: Human-readable plan title
+       - agent: The AI agent creating/executing the plan (e.g., "claude-code", "cursor", "sixth")
+       - model: (Optional) The AI model to use for execution (e.g., "claude-sonnet-4-20250514", "gpt-4o")
+       - provider: (Optional) The AI provider (e.g., "anthropic", "openai", "google", "mistral")
+
+       The model and provider attributes allow users to specify which AI model should execute
+       the plan. Users can also change these settings in the UI by clicking the model badge
+       in the plan header.
+  -->
   <nodes>
     <!-- Task Node: A step to execute -->
     <node id="n1" type="task" status="pending">
@@ -34,7 +45,7 @@ These rules are mandatory and must never be broken:
       <dynamic_field
         id="f1"
         name="field_name"
-        type="string|secret|select|boolean|number"
+        type="string|secret|select|boolean|number|question|color"
         required="true|false"
         title="Human-readable label"
         description="Help text for the field"
@@ -158,7 +169,7 @@ Mark the plan as failed with an error.
 ## Example: Simple Web App
 
 ```xml
-<plan id="plan_webapp" title="Create React Todo App" agent="claude-code">
+<plan id="plan_webapp" title="Create React Todo App" agent="claude-code" model="claude-sonnet-4-20250514" provider="anthropic">
   <nodes>
     <node id="n1" type="task" status="pending">
       <title>Initialize Vite + React project</title>

@@ -117,8 +117,8 @@ export function RequirementsChecklistV2() {
         branchSelected,
       };
     })
-    // Only show nodes that have required fields or are branch points
-    .filter(req => req.fields.some(f => f.required) || req.isBranchPoint);
+    // Show nodes that have any fields (required or optional) or are branch points
+    .filter(req => req.fields.length > 0 || req.isBranchPoint);
 
   if (requirements.length === 0) {
     return null;
@@ -270,7 +270,10 @@ export function RequirementsChecklistV2() {
                         <div className="flex items-center gap-2 mt-0.5">
                           {req.fields.length > 0 && (
                             <span className="text-[10px] text-text-muted">
-                              {req.fields.filter(f => f.required && f.value).length}/{req.fields.filter(f => f.required).length} fields
+                              {req.fields.filter(f => f.value).length}/{req.fields.length} fields
+                              {req.fields.some(f => !f.required) && (
+                                <span className="text-text-muted/60"> ({req.fields.filter(f => !f.required).length} optional)</span>
+                              )}
                             </span>
                           )}
                           {req.isBranchPoint && (
@@ -414,7 +417,11 @@ function FieldInput({ field, onChange }: FieldInputProps) {
     <div className="space-y-1">
       <label className="flex items-center gap-1 text-xs font-medium text-text-primary">
         {field.title}
-        {field.required && <span className="text-accent-red">*</span>}
+        {field.required ? (
+          <span className="text-accent-red">*</span>
+        ) : (
+          <span className="text-text-muted/70 text-[10px]">(optional)</span>
+        )}
         {hasValue && <CheckCircle2 className="w-3 h-3 text-accent-green ml-auto" />}
       </label>
 

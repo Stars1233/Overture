@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan title="Color Field Required Test" agent="claude-code" prompt="Test required color field validation">
+  <node id="test:1" type="task" title="Required Color Selection" description="This node requires a color to be selected">
+    <dynamic_field
+      id="field_required_color"
+      type="color"
+      name="brand_color"
+      title="Brand Color"
+      description="Select the brand color (required)"
+      required="true"
+    />
+  </node>
+  <node id="test:2" type="task" title="Optional Color Selection" description="This node has an optional color field">
+    <dynamic_field
+      id="field_optional_color"
+      type="color"
+      name="highlight_color"
+      title="Highlight Color"
+      description="Optional highlight color"
+      value="#fbbf24"
+      required="false"
+    />
+  </node>
+  <edge id="edge_1_2" from="test:1" to="test:2" />
+</plan>

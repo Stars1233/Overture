@@ -6,6 +6,7 @@ import {
   HistoryEntry,
   PersistedPlan,
 } from '@/stores/multi-project-store';
+import { useSettingsStore } from '@/stores/settings-store';
 import { historyCache } from '@/utils/history-cache';
 
 const WS_URL = 'ws://localhost:3030';
@@ -60,7 +61,11 @@ type MessageType =
   | { type: 'plan_updated'; plan: PersistedPlan; previousPlan: PersistedPlan; diff: PlanDiff; projectId: string }
   | { type: 'new_plan_created'; planId: string; projectId: string }
   | { type: 'plan_updated_incrementally'; operationCount: number; successCount: number; failCount: number; projectId: string }
-  | { type: 'node_replaced'; oldNodeId: string; node: PlanNode; projectId: string };
+  | { type: 'node_replaced'; oldNodeId: string; node: PlanNode; projectId: string }
+  | { type: 'node_description_updated'; nodeId: string; description: string; projectId?: string }
+  | { type: 'nodes_detail_updated'; updates: Array<{ nodeId: string; updates: Partial<PlanNode> }>; projectId?: string }
+  | { type: 'node_detail_updated'; nodeId: string; updates: Partial<PlanNode>; projectId?: string }
+  | { type: 'plan_settings_updated'; planId: string; model?: string; provider?: string; projectId?: string };
 
 // Plan diff type (matching server)
 interface PlanDiff {
@@ -410,6 +415,67 @@ export function useWebSocket() {
         break;
       }
 
+      case 'node_description_updated': {
+        console.log('[Overture] Node description updated:', message.nodeId);
+
+        // Update legacy store
+        usePlanStore.getState().updateNode(message.nodeId, { description: message.description });
+
+        // Update multi-project store
+        if (projectId) {
+          multiProjectStore.getState().updateProjectNode(projectId, message.nodeId, { description: message.description });
+        }
+        break;
+      }
+
+      case 'node_detail_updated': {
+        console.log('[Overture] Node detail updated:', message.nodeId);
+
+        // Update legacy store
+        usePlanStore.getState().updateNode(message.nodeId, message.updates);
+
+        // Update multi-project store
+        if (projectId) {
+          multiProjectStore.getState().updateProjectNode(projectId, message.nodeId, message.updates);
+        }
+        break;
+      }
+
+      case 'nodes_detail_updated': {
+        console.log('[Overture] Nodes detail updated (batch):', message.updates.length, 'nodes');
+
+        // Loop through updates and apply each
+        for (const update of message.updates) {
+          // Update legacy store
+          usePlanStore.getState().updateNode(update.nodeId, update.updates);
+
+          // Update multi-project store
+          if (projectId) {
+            multiProjectStore.getState().updateProjectNode(projectId, update.nodeId, update.updates);
+          }
+        }
+        break;
+      }
+
+      case 'plan_settings_updated': {
+        console.log('[Overture] Plan settings updated:', message.planId);
+
+        // Update legacy store
+        usePlanStore.getState().updatePlanSettings(message.planId, {
+          model: message.model,
+          provider: message.provider,
+        });
+
+        // Update multi-project store
+        if (projectId) {
+          multiProjectStore.getState().updateProjectPlanSettings(projectId, {
+            model: message.model,
+            provider: message.provider,
+          });
+        }
+        break;
+      }
+
       default:
         console.warn('[Overture] Unknown message type:', message);
     }
@@ -430,6 +496,15 @@ export function useWebSocket() {
 
         // Request history on connect
         ws.send(JSON.stringify({ type: 'get_history' }));
+
+        // Sync settings on connect
+        const settings = useSettingsStore.getState();
+        ws.send(JSON.stringify({
+          type: 'sync_settings',
+          settings: {
+            minNodesPerPlan: settings.minNodesPerPlan,
+          },
+        }));
 
         // Clear any reconnection timeout
         if (reconnectTimeoutRef.current) {
@@ -495,13 +570,18 @@ export function useWebSocket() {
     sendMessage({ type: 'resume_execution', projectId });
   }, [sendMessage]);
 
-  const insertNodes = useCallback((afterNodeId: string, nodes: PlanNode[], edges: PlanEdge[], projectId?: string) => {
+  const insertNodes = useCallback((
+    nodes: PlanNode[],
+    edges: PlanEdge[],
+    options: { afterNodeId?: string; beforeNodeId?: string; projectId?: string }
+  ) => {
     sendMessage({
       type: 'insert_nodes',
-      afterNodeId,
+      afterNodeId: options.afterNodeId,
+      beforeNodeId: options.beforeNodeId,
       nodes,
       edges,
-      projectId,
+      projectId: options.projectId,
     });
   }, [sendMessage]);
 
@@ -673,6 +753,29 @@ export function useWebSocket() {
     multiProjectStore.getState().setShowDiffView(false);
   }, []);
 
+  const syncSettings = useCallback(() => {
+    const settings = useSettingsStore.getState();
+    sendMessage({
+      type: 'sync_settings',
+      settings: {
+        minNodesPerPlan: settings.minNodesPerPlan,
+      },
+    });
+  }, [sendMessage]);
+
+  const updateNodeDescription = useCallback((nodeId: string, description: string, projectId?: string) => {
+    // Update local state immediately for responsiveness
+    usePlanStore.getState().updateNode(nodeId, { description });
+
+    // Send to server to persist and sync with other clients
+    sendMessage({
+      type: 'update_node_description',
+      nodeId,
+      description,
+      projectId,
+    });
+  }, [sendMessage]);
+
   // Load cached history on mount (before WebSocket connects)
   useEffect(() => {
     const cachedHistory = historyCache.load();
@@ -730,6 +833,18 @@ export function useWebSocket() {
     return () => clearInterval(autoSaveInterval);
   }, [savePlan]);
 
+  // Sync settings to server when they change
+  useEffect(() => {
+    const unsubscribe = useSettingsStore.subscribe((state, prevState) => {
+      // Only sync if minNodesPerPlan changed
+      if (state.minNodesPerPlan !== prevState.minNodesPerPlan) {
+        syncSettings();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [syncSettings]);
+
   return {
     sendMessage,
     approvePlan,
@@ -746,5 +861,7 @@ export function useWebSocket() {
     requestPlanUpdate,
     createNewPlan,
     closeDiffView,
+    updateNodeDescription,
+    syncSettings,
   };
 }

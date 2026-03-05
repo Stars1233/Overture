@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan id="linear-test-001" title="Linear Plan for Context Menu" agent="qa-tester">
+  <node id="A" title="Node A" description="First node"/>
+  <node id="B" title="Node B" description="Middle node"/>
+  <node id="C" title="Node C" description="Last node"/>
+  <node id="D" title="Node D" description="Another middle node"/>
+  <node id="E" title="Node E" description="Final node"/>
+
+  <edge from="A" to="B"/>
+  <edge from="B" to="C"/>
+  <edge from="C" to="D"/>
+  <edge from="D" to="E"/>
+</plan>

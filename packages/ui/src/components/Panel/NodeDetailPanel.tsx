@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { X, AlertCircle, CheckCircle2, FileCode, Paperclip, FileText, Image, File, Trash2, Plus, MessageSquare, Save, Server, Eye } from 'lucide-react';
+import { X, AlertCircle, CheckCircle2, FileCode, Paperclip, FileText, Image, File, Trash2, Plus, MessageSquare, Save, Server, Eye, Pencil } from 'lucide-react';
 import { usePlanStore, FileAttachment } from '@/stores/plan-store';
 import { useMultiProjectStore } from '@/stores/multi-project-store';
 import { DynamicFieldInput } from './DynamicFieldInput';
@@ -8,6 +8,7 @@ import { McpMarketplaceModal } from '../Modals/McpMarketplaceModal';
 import { OutputModal } from '../Modals/OutputModal';
 import { clsx } from 'clsx';
 import { type ChangeEvent, useRef, useState } from 'react';
+import { useWebSocket } from '@/hooks/useWebSocket';
 
 // Helper to determine file type from extension
 function getFileType(filename: string): FileAttachment['type'] {
@@ -76,14 +77,23 @@ export function NodeDetailPanel() {
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Description editing state
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [editedDescription, setEditedDescription] = useState<string>('');
+
+  // WebSocket hook for syncing description edits
+  const { updateNodeDescription } = useWebSocket();
+
   // Find the node from the correct plan (or search all plans)
   let node = null;
   let nodePlanId: string | undefined;
+  let plan: typeof plans[0]['plan'] | null = null;
 
   if (selectedPlanId) {
     const planData = plans.find(p => p.plan.id === selectedPlanId);
     node = planData?.nodes.find((n) => n.id === selectedNodeId) || null;
     nodePlanId = selectedPlanId;
+    plan = planData?.plan ?? null;
   } else {
     // Search all plans for the node (backwards compatibility)
     for (const planData of plans) {
@@ -91,6 +101,7 @@ export function NodeDetailPanel() {
       if (found) {
         node = found;
         nodePlanId = planData.plan.id;
+        plan = planData.plan;
         break;
       }
     }
@@ -102,6 +113,9 @@ export function NodeDetailPanel() {
     setPendingFiles([]);
     setHasUnsavedChanges(false);
     setInitialized(node.id);
+    // Reset description editing state
+    setIsEditingDescription(false);
+    setEditedDescription('');
   }
 
   if (!node) return null;
@@ -248,16 +262,68 @@ export function NodeDetailPanel() {
       {/* Content - Scrollable */}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3">
         {/* Description */}
-        {node.description && (
-          <section>
-            <h3 className="text-[10px] font-medium text-text-muted uppercase tracking-wider mb-1">
+        <section>
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-[10px] font-medium text-text-muted uppercase tracking-wider">
               Description
             </h3>
-            <p className="text-xs text-text-secondary leading-relaxed">
-              {node.description}
-            </p>
-          </section>
-        )}
+            {!isEditingDescription && plan?.status === 'ready' && (
+              <button
+                onClick={() => {
+                  setEditedDescription(node.description || '');
+                  setIsEditingDescription(true);
+                }}
+                className="p-1 rounded hover:bg-surface-raised text-text-muted hover:text-text-primary transition-colors"
+                title={node.description ? 'Edit description' : 'Add description'}
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          {!isEditingDescription ? (
+            node.description ? (
+              <p className="text-xs text-text-secondary leading-relaxed">
+                {node.description}
+              </p>
+            ) : (
+              <p className="text-xs text-text-muted italic">
+                No description provided
+              </p>
+            )
+          ) : (
+            <div className="space-y-2">
+              <textarea
+                value={editedDescription}
+                onChange={(e) => setEditedDescription(e.target.value)}
+                placeholder="Enter a description for this step..."
+                rows={3}
+                className="w-full px-2 py-1.5 rounded-md bg-canvas border border-border text-xs text-text-primary placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-accent-blue resize-none"
+                autoFocus
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setIsEditingDescription(false);
+                    setEditedDescription('');
+                  }}
+                  className="px-2 py-1 rounded text-[10px] text-text-muted hover:bg-surface-raised transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    updateNodeDescription(node.id, editedDescription, activeTabId || undefined);
+                    setIsEditingDescription(false);
+                    setEditedDescription('');
+                  }}
+                  className="px-2 py-1 rounded text-[10px] bg-accent-blue text-white hover:bg-accent-blue/90 transition-colors"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
 
         {/* Metadata Grid */}
         <section className="grid grid-cols-2 gap-2">

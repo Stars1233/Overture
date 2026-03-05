@@ -34,7 +34,7 @@ These rules are mandatory and must never be broken:
       <dynamic_field
         id="f1"
         name="field_name"
-        type="string|secret|select|boolean|number"
+        type="string|secret|select|boolean|number|question|color"
         required="true|false"
         title="Human-readable label"
         description="Help text for the field"

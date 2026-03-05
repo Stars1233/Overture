@@ -373,8 +373,52 @@ Add `<pros>` and `<cons>` directly on branch option nodes to help users decide:
 | `select` | Choice from options (use `options="a,b,c"`) | Framework choice, environment |
 | `boolean` | Yes/No toggle | Enable TypeScript? Use strict mode? |
 | `number` | Numeric input | Port number, timeout value |
+| `question` | Ask user a question | User preferences, custom requirements |
+| `color` | Color picker (hex format) | Theme color, brand color |
 
 **Always include `setup_instructions`** for fields requiring external values (API keys, credentials).
+
+### Color Field Type
+
+The `color` type renders a color picker with a hex input field:
+- Stores the value as a hex string (e.g., `#3b82f6`)
+- Shows both a visual color picker and text input for precise hex values
+
+```xml
+<dynamic_field
+  id="c1"
+  type="color"
+  name="primary_color"
+  title="Primary Color"
+  description="Main brand color for the UI"
+  value="#3b82f6"
+/>
+```
+
+### Question Field Type
+
+The `question` type is used to ask users questions during plan configuration:
+- If `options` attribute is provided: renders as a dropdown
+- If no `options`: renders as a text input for free-form answers
+
+```xml
+<!-- Question with dropdown options -->
+<dynamic_field
+  id="q1"
+  type="question"
+  name="preferred_database"
+  title="Which database do you prefer?"
+  options="PostgreSQL,MySQL,MongoDB,SQLite"
+/>
+
+<!-- Question with free-form text input -->
+<dynamic_field
+  id="q2"
+  type="question"
+  name="custom_requirement"
+  title="Any specific requirements?"
+/>
+```
 
 ---
 

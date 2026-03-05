@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { WSMessage, WSClientMessage, ProjectContext, HistoryEntry } from '../types.js';
 import { planStore, multiProjectPlanStore } from '../store/plan-store.js';
 import { historyStorage } from '../storage/history-storage.js';
+import { settingsStore } from '../store/settings-store.js';
 
 /**
  * Tracks a connected client and their project subscription
@@ -373,17 +374,33 @@ class WebSocketManager {
         break;
 
       case 'insert_nodes': {
-        console.error(`[Overture] Inserting ${message.nodes.length} node(s) after ${message.afterNodeId} (project: ${projectId})`);
-        const insertResult = multiProjectPlanStore.insertNodes(projectId, message.afterNodeId, message.nodes, message.edges);
-        // Include both the new edges AND the reconnection edges
-        const allEdges = [...message.edges, ...insertResult.reconnectionEdges];
-        this.broadcastToProject(projectId, {
-          type: 'nodes_inserted',
-          nodes: message.nodes,
-          edges: allEdges,
-          removedEdgeIds: insertResult.removedEdgeIds,
-          projectId
-        });
+        if (message.afterNodeId) {
+          // Insert AFTER a node
+          console.error(`[Overture] Inserting ${message.nodes.length} node(s) after ${message.afterNodeId} (project: ${projectId})`);
+          const insertResult = multiProjectPlanStore.insertNodes(projectId, message.afterNodeId, message.nodes, message.edges);
+          // Include both the new edges AND the reconnection edges
+          const allEdges = [...message.edges, ...insertResult.reconnectionEdges];
+          this.broadcastToProject(projectId, {
+            type: 'nodes_inserted',
+            nodes: message.nodes,
+            edges: allEdges,
+            removedEdgeIds: insertResult.removedEdgeIds,
+            projectId
+          });
+        } else if (message.beforeNodeId) {
+          // Insert BEFORE a node (typically the first node)
+          console.error(`[Overture] Inserting ${message.nodes.length} node(s) before ${message.beforeNodeId} (project: ${projectId})`);
+          const insertResult = multiProjectPlanStore.insertNodesBefore(projectId, message.beforeNodeId, message.nodes, message.edges);
+          this.broadcastToProject(projectId, {
+            type: 'nodes_inserted',
+            nodes: message.nodes,
+            edges: insertResult.allEdges,
+            removedEdgeIds: insertResult.removedEdgeIds,
+            projectId
+          });
+        } else {
+          console.error(`[Overture] insert_nodes called without afterNodeId or beforeNodeId`);
+        }
         break;
       }
 
@@ -434,6 +451,57 @@ class WebSocketManager {
           planId: '', // Will be set when the new plan arrives
           projectId: effectiveProjectId
         });
+        break;
+      }
+
+      case 'update_node_description': {
+        const effectiveProjectId = message.projectId || projectId;
+        console.error(`[Overture] Updating node description: ${message.nodeId} (project: ${effectiveProjectId})`);
+
+        const success = multiProjectPlanStore.updateNodeDescription(
+          effectiveProjectId,
+          message.nodeId,
+          message.description
+        );
+
+        if (success) {
+          // Broadcast the update to all clients so they stay in sync
+          this.broadcastToProject(effectiveProjectId, {
+            type: 'node_description_updated',
+            nodeId: message.nodeId,
+            description: message.description,
+            projectId: effectiveProjectId
+          } as WSMessage);
+        }
+        break;
+      }
+
+      case 'sync_settings': {
+        console.error('[Overture] Received settings sync:', message.settings);
+        settingsStore.updateSettings(message.settings);
+        break;
+      }
+
+      case 'update_plan_settings': {
+        const effectiveProjectId = message.projectId || projectId;
+        console.error(`[Overture] Updating plan settings for plan: ${message.planId} (project: ${effectiveProjectId})`);
+
+        const success = multiProjectPlanStore.updatePlanSettings(
+          effectiveProjectId,
+          message.planId,
+          { model: message.model, provider: message.provider }
+        );
+
+        if (success) {
+          // Broadcast the update to all clients so they stay in sync
+          this.broadcastToProject(effectiveProjectId, {
+            type: 'plan_settings_updated',
+            planId: message.planId,
+            model: message.model,
+            provider: message.provider,
+            projectId: effectiveProjectId
+          } as WSMessage);
+        }
         break;
       }
     }

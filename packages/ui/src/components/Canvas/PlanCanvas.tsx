@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -18,9 +18,24 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { TaskNode } from './TaskNode';
 import { DecisionNode } from './DecisionNode';
 import { InsertableEdge } from './InsertableEdge';
+import { ContextMenu, type ContextMenuPosition } from './ContextMenu';
 import { useAutoLayout } from '@/hooks/useAutoLayout';
+import { PlanSettingsModal } from '@/components/Modals/PlanSettingsModal';
 import { AnimatePresence, motion } from 'framer-motion';
-import { User, Zap, CheckCircle, XCircle, Clock, Loader2, Pause, X } from 'lucide-react';
+import { User, Zap, CheckCircle, XCircle, Clock, Loader2, Pause, X, Cpu } from 'lucide-react';
+
+// Context menu state type
+interface ContextMenuState {
+  isOpen: boolean;
+  position: ContextMenuPosition;
+  nodeId: string;
+  planId: string;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  canDelete: boolean;
+  canInsertBefore: boolean;
+  canInsertAfter: boolean;
+}
 
 // Constants for Figma-style artboard layout
 const PLAN_HORIZONTAL_GAP = 150; // Gap between plans
@@ -44,9 +59,10 @@ interface PlanHeaderProps {
   completedCount: number;
   totalCount: number;
   onClose?: () => void;
+  onOpenSettings?: () => void;
 }
 
-function PlanHeader({ plan, completedCount, totalCount, onClose }: PlanHeaderProps) {
+function PlanHeader({ plan, completedCount, totalCount, onClose, onOpenSettings }: PlanHeaderProps) {
   const progress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   const getStatusIcon = () => {
@@ -87,6 +103,14 @@ function PlanHeader({ plan, completedCount, totalCount, onClose }: PlanHeaderPro
     }
   };
 
+  // Format model name for display (shorten if needed)
+  const formatModelName = (model: string) => {
+    if (model.length > 20) {
+      return model.slice(0, 17) + '...';
+    }
+    return model;
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: -10 }}
@@ -101,6 +125,37 @@ function PlanHeader({ plan, completedCount, totalCount, onClose }: PlanHeaderPro
           {plan.agent}
         </span>
       </div>
+
+      {/* Model/Provider badge - clickable to open settings */}
+      {(plan.model || plan.provider) ? (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenSettings?.();
+          }}
+          className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-accent-cyan/10 border border-accent-cyan/20
+                     hover:bg-accent-cyan/20 hover:border-accent-cyan/30 transition-colors cursor-pointer group"
+          title="Click to edit model settings"
+        >
+          <Cpu className="w-3 h-3 text-accent-cyan" />
+          <span className="text-[10px] text-accent-cyan font-medium">
+            {plan.model ? formatModelName(plan.model) : plan.provider}
+          </span>
+        </button>
+      ) : (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenSettings?.();
+          }}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-surface-raised border border-border
+                     hover:bg-surface-overlay hover:border-accent-cyan/30 transition-colors cursor-pointer text-text-muted hover:text-accent-cyan"
+          title="Set model/provider for this plan"
+        >
+          <Cpu className="w-3 h-3" />
+          <span className="text-[10px] font-medium">Set Model</span>
+        </button>
+      )}
 
       {/* Progress indicator */}
       {totalCount > 0 && (
@@ -152,7 +207,8 @@ function convertPlanToReactFlow(
   xOffset: number,
   setPendingInsert: (afterNodeId: string | null) => void,
   removeNode: (nodeId: string) => void,
-  layoutNodes: (nodes: Node[], edges: Edge[]) => Node[]
+  layoutNodes: (nodes: Node[], edges: Edge[]) => Node[],
+  onNodeContextMenu?: (event: React.MouseEvent, nodeId: string, planId: string) => void
 ): { nodes: Node[]; edges: Edge[]; width: number } {
   const { plan, nodes: allPlanNodes, edges: allPlanEdges } = planData;
 
@@ -212,6 +268,25 @@ function convertPlanToReactFlow(
       for (const targetId of targets) {
         branchTargetInfo[targetId] = nodeId;
       }
+    }
+  }
+
+  // Build incoming edges map for "insert before" and move operations
+  const incomingEdgesMap: Record<string, string[]> = {};
+  planEdges.forEach((edge: PlanEdge) => {
+    if (!incomingEdgesMap[edge.to]) {
+      incomingEdgesMap[edge.to] = [];
+    }
+    incomingEdgesMap[edge.to].push(edge.from);
+  });
+
+  // Identify nodes connected to possibility/branch nodes
+  // These nodes should NOT show context menu
+  const nodesConnectedToPossibility = new Set<string>();
+  for (const node of planNodes) {
+    // Check if node is a branch target (has branchSourceId set)
+    if (node.branchSourceId || branchTargetInfo[node.id]) {
+      nodesConnectedToPossibility.add(node.id);
     }
   }
 
@@ -293,12 +368,42 @@ function convertPlanToReactFlow(
     const hasMultipleOutgoing = (outgoingEdgesCount[node.id] || 0) > 1;
     const hasMultipleIncoming = (incomingEdgesCount[node.id] || 0) > 1;
     const canInsertAfter = canModifyPlan && !hasMultipleOutgoing;
+    const canInsertBefore = canModifyPlan && !hasMultipleIncoming;
     const canRemove = canModifyPlan && !hasMultipleOutgoing && !hasMultipleIncoming;
 
     // Get branch point info for this node
     const branchInfo = branchPointInfo[node.id];
     const isBranchPoint = node.isBranchPoint || branchInfo?.isBranchPoint || false;
     const branchTargetIds = node.branchTargetIds || branchInfo?.branchTargetIds || [];
+
+    // Determine if context menu should be available for this node
+    // NOT allowed on:
+    // - possibility/branch nodes (nodes with branchSourceId set)
+    // - branch point nodes (isBranchPoint === true)
+    // - nodes connected to possibility nodes
+    // - when plan status !== 'ready'
+    const hasBranchSource = !!(branchSourceFromGraph || node.branchSourceId);
+    const isConnectedToPossibility = nodesConnectedToPossibility.has(node.id);
+    const canShowContextMenu = plan.status === 'ready' &&
+                                !isBranchPoint &&
+                                !hasBranchSource &&
+                                !isConnectedToPossibility;
+
+    // Get adjacent nodes for move up/down
+    const predecessors = incomingEdgesMap[node.id] || [];
+    const successors = outgoingEdgesMap[node.id] || [];
+    const prevNodeId = predecessors.length === 1 ? predecessors[0] : null;
+    const nextNodeIdForSwap = successors.length === 1 ? successors[0] : null;
+
+    // Can only move up/down if single predecessor/successor and they're not branch points or branch targets
+    const canMoveUp = canShowContextMenu &&
+                      prevNodeId !== null &&
+                      !branchPointInfo[prevNodeId] &&
+                      !branchTargetInfo[prevNodeId];
+    const canMoveDown = canShowContextMenu &&
+                        nextNodeIdForSwap !== null &&
+                        !branchPointInfo[nextNodeIdForSwap] &&
+                        !branchTargetInfo[nextNodeIdForSwap];
 
     return {
       id: `${plan.id}:${node.id}`, // Prefix with plan ID to make unique across plans
@@ -314,9 +419,14 @@ function convertPlanToReactFlow(
         isNextToExecute: node.id === nextNodeId, // Mark the next node to execute
         canModify: canModifyPlan,
         canInsertAfter,
+        canInsertBefore,
         canRemove,
+        canMoveUp,
+        canMoveDown,
+        canShowContextMenu,
         onInsertNode: setPendingInsert,
         onRemoveNode: removeNode,
+        onContextMenu: onNodeContextMenu,
         // Branch point info
         isBranchPoint,
         branchTargetIds,
@@ -339,30 +449,41 @@ function convertPlanToReactFlow(
     };
   });
 
+  // Build a set of disabled node IDs for edge styling
+  // This ensures edges connected to disabled nodes are also disabled
+  const disabledNodeIds = new Set<string>();
+  planNodes.forEach((node: PlanNode) => {
+    let isDisabledBranch = false;
+
+    // Check branchTargetInfo (computed from current graph structure)
+    const branchSourceFromGraph = branchTargetInfo[node.id];
+    if (branchSourceFromGraph) {
+      const selectedTargetId = branchSelections[branchSourceFromGraph];
+      if (selectedTargetId && selectedTargetId !== node.id) {
+        isDisabledBranch = true;
+      }
+    }
+
+    // Legacy support: check branchParent/branchId (but ONLY if not already handled)
+    if (!isDisabledBranch && !branchSourceFromGraph && node.branchParent && node.branchId) {
+      const selectedBranch = branchSelections[node.branchParent];
+      if (selectedBranch && selectedBranch !== node.branchId) {
+        isDisabledBranch = true;
+      }
+    }
+
+    if (isDisabledBranch) {
+      disabledNodeIds.add(node.id);
+    }
+  });
+
   // Convert edges
   const rfEdges = planEdges.map((edge: PlanEdge) => {
     const sourceNode = planNodes.find((n: PlanNode) => n.id === edge.from);
     const targetNode = planNodes.find((n: PlanNode) => n.id === edge.to);
 
-    let isDisabledEdge = false;
-
-    // ONLY check branchTargetInfo (computed from current graph structure)
-    // This ensures we only disable edges to DIRECT branch targets, not downstream nodes
-    const targetBranchSourceFromGraph = branchTargetInfo[edge.to];
-    if (targetBranchSourceFromGraph) {
-      const selectedTargetId = branchSelections[targetBranchSourceFromGraph];
-      if (selectedTargetId && selectedTargetId !== edge.to) {
-        isDisabledEdge = true;
-      }
-    }
-
-    // Legacy support (but ONLY if not already handled)
-    if (!isDisabledEdge && !targetBranchSourceFromGraph && targetNode?.branchParent && targetNode?.branchId) {
-      const selectedBranch = branchSelections[targetNode.branchParent];
-      if (selectedBranch && selectedBranch !== targetNode.branchId) {
-        isDisabledEdge = true;
-      }
-    }
+    // An edge is disabled if either its source or target node is disabled
+    const isDisabledEdge = disabledNodeIds.has(edge.from) || disabledNodeIds.has(edge.to);
 
     const isActiveEdge = targetNode?.status === 'active';
     const isExecutedEdge = sourceNode && executedNodeIds.has(sourceNode.id) &&
@@ -380,23 +501,26 @@ function convertPlanToReactFlow(
       strokeColor = '#27272a';
     }
 
+    // Disabled edges should never be animated or have active styling
+    const shouldAnimate = isActiveEdge && !isDisabledEdge;
+
     return {
       id: `${plan.id}:${edge.id}`,
       source: `${plan.id}:${edge.from}`,
       target: `${plan.id}:${edge.to}`,
       type: 'insertable',
-      animated: isActiveEdge,
-      className: isActiveEdge ? 'edge-active-pulse' : '',
+      animated: shouldAnimate,
+      className: shouldAnimate ? 'edge-active-pulse' : '',
       data: {
         planId: plan.id,
-        isActiveEdge,
+        isActiveEdge: shouldAnimate, // Pass the corrected value
         isExecutedEdge,
         isDisabledEdge,
         isUnexecutedEdge,
       },
       style: {
         stroke: strokeColor,
-        strokeWidth: isActiveEdge ? 3 : 2,
+        strokeWidth: shouldAnimate ? 3 : 2,
         opacity: isDisabledEdge ? 0.3 : isUnexecutedEdge ? 0.4 : 1,
       },
     };
@@ -433,15 +557,123 @@ export function PlanCanvas() {
     plans,
     setSelectedNodeId,
     setPendingInsert,
+    setPendingInsertBefore,
     clearPlan,
     setSelectedBranch,
+    swapNodes,
+    getAdjacentNodeIds,
   } = usePlanStore();
   const { removeNode } = useWebSocket();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    isOpen: false,
+    position: { x: 0, y: 0 },
+    nodeId: '',
+    planId: '',
+    canMoveUp: false,
+    canMoveDown: false,
+    canDelete: false,
+    canInsertBefore: false,
+    canInsertAfter: false,
+  });
+
+  // Plan settings modal state
+  const [settingsModalPlan, setSettingsModalPlan] = useState<Plan | null>(null);
+
   // Auto-layout hook
   const { layoutNodes } = useAutoLayout();
+
+  // Handle context menu open
+  const handleNodeContextMenu = useCallback((event: React.MouseEvent, nodeId: string, planId: string) => {
+    event.preventDefault();
+
+    // Find the plan data
+    const planData = plans.find(p => p.plan.id === planId);
+    if (!planData) return;
+
+    // Find the node
+    const node = planData.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+
+    // Get adjacent node info
+    const { prevNodeId, nextNodeId } = getAdjacentNodeIds(nodeId, planId);
+
+    // Build edge maps for this plan
+    const outgoingEdgesCount: Record<string, number> = {};
+    const incomingEdgesCount: Record<string, number> = {};
+    planData.edges.forEach((edge: PlanEdge) => {
+      outgoingEdgesCount[edge.from] = (outgoingEdgesCount[edge.from] || 0) + 1;
+      incomingEdgesCount[edge.to] = (incomingEdgesCount[edge.to] || 0) + 1;
+    });
+
+    const hasMultipleOutgoing = (outgoingEdgesCount[nodeId] || 0) > 1;
+    const hasMultipleIncoming = (incomingEdgesCount[nodeId] || 0) > 1;
+
+    // Determine what actions are available
+    const canMoveUp = prevNodeId !== null && !hasMultipleIncoming;
+    const canMoveDown = nextNodeId !== null && !hasMultipleOutgoing;
+    const canDelete = !hasMultipleOutgoing && !hasMultipleIncoming;
+    const canInsertBefore = !hasMultipleIncoming;
+    const canInsertAfter = !hasMultipleOutgoing;
+
+    setContextMenu({
+      isOpen: true,
+      position: { x: event.clientX, y: event.clientY },
+      nodeId,
+      planId,
+      canMoveUp,
+      canMoveDown,
+      canDelete,
+      canInsertBefore,
+      canInsertAfter,
+    });
+  }, [plans, getAdjacentNodeIds]);
+
+  // Context menu handlers
+  const handleContextMenuClose = useCallback(() => {
+    setContextMenu(prev => ({ ...prev, isOpen: false }));
+  }, []);
+
+  const handleMoveUp = useCallback((nodeId: string, planId: string) => {
+    const { prevNodeId } = getAdjacentNodeIds(nodeId, planId);
+    if (prevNodeId) {
+      swapNodes(prevNodeId, nodeId, planId);
+    }
+  }, [getAdjacentNodeIds, swapNodes]);
+
+  const handleMoveDown = useCallback((nodeId: string, planId: string) => {
+    const { nextNodeId } = getAdjacentNodeIds(nodeId, planId);
+    if (nextNodeId) {
+      swapNodes(nodeId, nextNodeId, planId);
+    }
+  }, [getAdjacentNodeIds, swapNodes]);
+
+  const handleDeleteNode = useCallback((nodeId: string, _planId: string) => {
+    removeNode(nodeId);
+  }, [removeNode]);
+
+  const handleInsertBefore = useCallback((nodeId: string, planId: string) => {
+    // Find the predecessor node
+    const { prevNodeId } = getAdjacentNodeIds(nodeId, planId);
+    if (prevNodeId) {
+      // Insert after the predecessor (which is effectively inserting before the current node)
+      setPendingInsert(prevNodeId);
+    } else {
+      // No predecessor - use insertBefore mode
+      setPendingInsertBefore(nodeId);
+    }
+  }, [getAdjacentNodeIds, setPendingInsert, setPendingInsertBefore]);
+
+  const handleInsertAfter = useCallback((nodeId: string, _planId: string) => {
+    setPendingInsert(nodeId);
+  }, [setPendingInsert]);
+
+  const handleEditDetails = useCallback((nodeId: string, planId: string) => {
+    setSelectedNodeId(nodeId, planId);
+  }, [setSelectedNodeId]);
 
   // Listen for branch selection events from TaskNode
   useEffect(() => {
@@ -474,7 +706,8 @@ export function PlanCanvas() {
         currentX,
         setPendingInsert,
         removeNode,
-        layoutNodes
+        layoutNodes,
+        handleNodeContextMenu
       );
 
       allNodes.push(...planNodes);
@@ -484,7 +717,7 @@ export function PlanCanvas() {
 
     setNodes(allNodes as unknown as never[]);
     setEdges(allEdges as unknown as never[]);
-  }, [plans, layoutNodes, setNodes, setEdges, setPendingInsert, removeNode]);
+  }, [plans, layoutNodes, setNodes, setEdges, setPendingInsert, removeNode, handleNodeContextMenu]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
@@ -498,7 +731,9 @@ export function PlanCanvas() {
 
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null);
-  }, [setSelectedNodeId]);
+    // Close context menu when clicking on pane
+    handleContextMenuClose();
+  }, [setSelectedNodeId, handleContextMenuClose]);
 
   // Handle closing a plan (removing from canvas)
   const handleClosePlan = useCallback((planId: string) => {
@@ -517,9 +752,19 @@ export function PlanCanvas() {
               completedCount={planData.completedCount}
               totalCount={planData.totalCount}
               onClose={plans.length > 1 ? () => handleClosePlan(planData.plan.id) : undefined}
+              onOpenSettings={() => setSettingsModalPlan(planData.plan)}
             />
           ))}
         </div>
+      )}
+
+      {/* Plan Settings Modal */}
+      {settingsModalPlan && (
+        <PlanSettingsModal
+          isOpen={!!settingsModalPlan}
+          onClose={() => setSettingsModalPlan(null)}
+          plan={settingsModalPlan}
+        />
       )}
 
       <AnimatePresence>
@@ -588,6 +833,26 @@ export function PlanCanvas() {
           </div>
         </div>
       )}
+
+      {/* Context Menu */}
+      <ContextMenu
+        isOpen={contextMenu.isOpen}
+        position={contextMenu.position}
+        nodeId={contextMenu.nodeId}
+        planId={contextMenu.planId}
+        canMoveUp={contextMenu.canMoveUp}
+        canMoveDown={contextMenu.canMoveDown}
+        canDelete={contextMenu.canDelete}
+        canInsertBefore={contextMenu.canInsertBefore}
+        canInsertAfter={contextMenu.canInsertAfter}
+        onClose={handleContextMenuClose}
+        onMoveUp={handleMoveUp}
+        onMoveDown={handleMoveDown}
+        onDelete={handleDeleteNode}
+        onInsertBefore={handleInsertBefore}
+        onInsertAfter={handleInsertAfter}
+        onEditDetails={handleEditDetails}
+      />
     </div>
   );
 }

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan title="Multiple Color Fields Test" agent="claude-code" prompt="Test multiple independent color fields">
+  <node id="test:1" type="task" title="Design System Colors" description="Configure all design system colors">
+    <dynamic_field
+      id="field_primary"
+      type="color"
+      name="primary_color"
+      title="Primary Color"
+      description="Main brand color"
+      value="#3b82f6"
+      required="true"
+    />
+    <dynamic_field
+      id="field_secondary"
+      type="color"
+      name="secondary_color"
+      title="Secondary Color"
+      description="Secondary brand color"
+      value="#8b5cf6"
+      required="true"
+    />
+    <dynamic_field
+      id="field_success"
+      type="color"
+      name="success_color"
+      title="Success Color"
+      description="Success state color"
+      value="#10b981"
+      required="false"
+    />
+    <dynamic_field
+      id="field_error"
+      type="color"
+      name="error_color"
+      title="Error Color"
+      description="Error state color"
+      value="#ef4444"
+      required="false"
+    />
+    <dynamic_field
+      id="field_warning"
+      type="color"
+      name="warning_color"
+      title="Warning Color"
+      description="Warning state color"
+      value="#f59e0b"
+      required="false"
+    />
+  </node>
+  <edge id="edge_1_end" from="test:1" to="test:end" />
+  <node id="test:end" type="task" title="Apply Color Scheme" description="Apply the selected color scheme to the application" />
+</plan>
