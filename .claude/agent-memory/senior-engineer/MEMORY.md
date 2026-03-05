@@ -39,48 +39,30 @@
 
 ## Monaco Editor Integration (Updated 2026-03-05)
 - Package: `@monaco-editor/react` in `packages/ui`
-- Files:
-  - `packages/ui/src/components/Panel/StructuredOutputView.tsx` - Inline diff preview
-  - `packages/ui/src/components/Modals/MonacoViewerModal.tsx` - Full-screen file viewer
-  - `packages/ui/src/components/Modals/OutputModal.tsx` - Output modal with viewer integration
+- Key files: `StructuredOutputView.tsx`, `MonacoViewerModal.tsx`, `OutputModal.tsx`
 - Custom theme `overture-dark` matches app colors
 - Language detection via `getLanguageFromFilename()` - maps 50+ extensions
-- Diff content normalization in `packages/mcp-server/src/parser/output-parser.ts`
 
-### MonacoViewerModal (Added 2026-03-05)
-Full-screen modal for viewing file content with syntax highlighting.
+### File Reading from Disk (Added 2026-03-05)
+Eye icon on file items now reads files from disk if content not embedded in structured output.
 
-**Features:**
-- Click eye icon on file items to open full editor view
-- Support for created files (full content) and changed files (diff view)
-- Auto-scroll to first changed line for diffs
-- Copy button for content
-- Shows line count, language, and stats (+/- lines)
+**Server Endpoint:** `POST /api/read-file`
+- Location: `packages/mcp-server/src/http/server.ts`
+- Request: `{ filePath: string }` (absolute path)
+- Response: `{ content, lineCount, size, lastModified }`
 
-**Props:**
-```tsx
-interface MonacoViewerModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  filePath: string;
-  content?: string;    // For created files
-  diff?: string;       // For changed files
-  mode: 'created' | 'changed' | 'diff';
-  linesAdded?: number;
-  linesRemoved?: number;
-}
-```
+**UI Flow:**
+1. `NodeDetailPanel` gets `workspacePath` from `useMultiProjectStore().tabs`
+2. Passes `workspacePath` to `OutputModal`
+3. On click, constructs full path: `${workspacePath}/${relativePath}`
+4. Fetches content via `/api/read-file` API
+5. Opens `MonacoViewerModal` with fetched content
 
-**FileCreated now supports content:**
-```typescript
-interface FileCreated {
-  path: string;
-  lines?: number;
-  content?: string;  // File content for Monaco viewer
-}
-```
-
-**Parser support:** `<content>` element inside `<file>` for `files_created`
+**Files Modified:**
+- `packages/mcp-server/src/http/server.ts` - Added `/api/read-file` endpoint
+- `packages/ui/src/components/Modals/OutputModal.tsx` - Added `workspacePath` prop, file fetching
+- `packages/ui/src/components/Panel/StructuredOutputView.tsx` - Same changes
+- `packages/ui/src/components/Panel/NodeDetailPanel.tsx` - Pass `workspacePath` to OutputModal
 
 ## UI Store Patterns
 - `usePlanStore.updateNode(id, updates)` applies partial updates via spread: `{ ...n, ...updates }`

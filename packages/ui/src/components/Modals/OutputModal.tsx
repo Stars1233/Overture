@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, FileCode, Package, Server, Search, Wrench, ExternalLink, AlertCircle, Info, AlertTriangle, Plus, Minus, FileText, Trash2, Eye } from 'lucide-react';
+import { X, FileCode, Package, Server, Search, Wrench, ExternalLink, AlertCircle, Info, AlertTriangle, Plus, Minus, FileText, Trash2, Eye, Loader2 } from 'lucide-react';
 import { StructuredOutput, FileChange, FileCreated } from '@/stores/plan-store';
 import { clsx } from 'clsx';
 import { useState, useCallback } from 'react';
@@ -12,6 +12,7 @@ interface OutputModalProps {
   nodeTitle: string;
   output?: string;
   structuredOutput?: StructuredOutput;
+  workspacePath?: string;  // Workspace path for resolving relative file paths
 }
 
 // Expandable section component
@@ -101,12 +102,46 @@ interface FileViewerState {
   linesRemoved?: number;
 }
 
+/**
+ * Reads file content from the server
+ */
+async function readFileContent(filePath: string): Promise<{ content: string; lineCount: number } | null> {
+  try {
+    const response = await fetch('/api/read-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath }),
+    });
+    if (!response.ok) {
+      console.error('[OutputModal] Failed to read file:', filePath);
+      return null;
+    }
+    return response.json();
+  } catch (error) {
+    console.error('[OutputModal] Error reading file:', error);
+    return null;
+  }
+}
+
+/**
+ * Constructs full file path from workspace path and relative path
+ */
+function getFullPath(workspacePath: string | undefined, relativePath: string): string | null {
+  if (!workspacePath) return null;
+  // Handle both Unix and Windows paths
+  const separator = workspacePath.includes('\\') ? '\\' : '/';
+  // Remove leading slashes from relative path to avoid double slashes
+  const cleanRelativePath = relativePath.replace(/^[/\\]+/, '');
+  return `${workspacePath}${separator}${cleanRelativePath}`;
+}
+
 export function OutputModal({
   isOpen,
   onClose,
   nodeTitle,
   output,
   structuredOutput,
+  workspacePath,
 }: OutputModalProps) {
   // File viewer modal state
   const [fileViewer, setFileViewer] = useState<FileViewerState>({
@@ -115,27 +150,80 @@ export function OutputModal({
     mode: 'created',
   });
 
+  // State for loading indicator
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
+
   // Handler for viewing changed files
-  const handleViewChangedFile = useCallback((file: FileChange) => {
-    setFileViewer({
-      isOpen: true,
-      filePath: file.path,
-      diff: file.diff,
-      mode: 'changed',
-      linesAdded: file.linesAdded,
-      linesRemoved: file.linesRemoved,
-    });
-  }, []);
+  const handleViewChangedFile = useCallback(async (file: FileChange) => {
+    // If diff is already present, use it directly
+    if (file.diff) {
+      setFileViewer({
+        isOpen: true,
+        filePath: file.path,
+        diff: file.diff,
+        mode: 'changed',
+        linesAdded: file.linesAdded,
+        linesRemoved: file.linesRemoved,
+      });
+      return;
+    }
+
+    // Otherwise, try to read the current file content from disk
+    const fullPath = getFullPath(workspacePath, file.path);
+    if (!fullPath) {
+      console.warn('[OutputModal] Cannot read file: no workspace path available');
+      return;
+    }
+
+    setIsLoadingFile(true);
+    const result = await readFileContent(fullPath);
+    setIsLoadingFile(false);
+
+    if (result) {
+      setFileViewer({
+        isOpen: true,
+        filePath: file.path,
+        content: result.content,
+        mode: 'created', // Show as full content since we don't have diff
+        linesAdded: file.linesAdded,
+        linesRemoved: file.linesRemoved,
+      });
+    }
+  }, [workspacePath]);
 
   // Handler for viewing created files
-  const handleViewCreatedFile = useCallback((file: FileCreated) => {
-    setFileViewer({
-      isOpen: true,
-      filePath: file.path,
-      content: file.content,
-      mode: 'created',
-    });
-  }, []);
+  const handleViewCreatedFile = useCallback(async (file: FileCreated) => {
+    // If content is already present, use it directly
+    if (file.content) {
+      setFileViewer({
+        isOpen: true,
+        filePath: file.path,
+        content: file.content,
+        mode: 'created',
+      });
+      return;
+    }
+
+    // Otherwise, try to read the file content from disk
+    const fullPath = getFullPath(workspacePath, file.path);
+    if (!fullPath) {
+      console.warn('[OutputModal] Cannot read file: no workspace path available');
+      return;
+    }
+
+    setIsLoadingFile(true);
+    const result = await readFileContent(fullPath);
+    setIsLoadingFile(false);
+
+    if (result) {
+      setFileViewer({
+        isOpen: true,
+        filePath: file.path,
+        content: result.content,
+        mode: 'created',
+      });
+    }
+  }, [workspacePath]);
 
   // Close file viewer
   const handleCloseViewer = useCallback(() => {
@@ -248,15 +336,18 @@ export function OutputModal({
                                       {file.linesRemoved}
                                     </span>
                                   )}
-                                  {file.diff && (
-                                    <button
-                                      onClick={() => handleViewChangedFile(file)}
-                                      className="p-1 rounded hover:bg-surface transition-colors text-text-muted hover:text-accent-blue"
-                                      title="View in full editor"
-                                    >
+                                  <button
+                                    onClick={() => handleViewChangedFile(file)}
+                                    disabled={isLoadingFile}
+                                    className="p-1 rounded hover:bg-surface transition-colors text-text-muted hover:text-accent-blue disabled:opacity-50"
+                                    title={file.diff ? "View diff in editor" : (workspacePath ? "View current file" : "No workspace path available")}
+                                  >
+                                    {isLoadingFile ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
                                       <Eye className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
+                                    )}
+                                  </button>
                                 </div>
                               </div>
                               {file.diff && (
@@ -300,15 +391,18 @@ export function OutputModal({
                                 {file.lines !== undefined && (
                                   <span className="text-xs text-text-muted">{file.lines} lines</span>
                                 )}
-                                {file.content && (
-                                  <button
-                                    onClick={() => handleViewCreatedFile(file)}
-                                    className="p-1 rounded hover:bg-surface-raised transition-colors text-text-muted hover:text-accent-green"
-                                    title="View file content"
-                                  >
+                                <button
+                                  onClick={() => handleViewCreatedFile(file)}
+                                  disabled={isLoadingFile}
+                                  className="p-1 rounded hover:bg-surface-raised transition-colors text-text-muted hover:text-accent-green disabled:opacity-50"
+                                  title={file.content ? "View file content" : (workspacePath ? "Read file from disk" : "No workspace path available")}
+                                >
+                                  {isLoadingFile ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
                                     <Eye className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
+                                  )}
+                                </button>
                               </div>
                             </div>
                           ))}

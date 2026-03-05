@@ -93,6 +93,24 @@
 - **Location**: `TaskNode.tsx` lines 67-68 (before conditional logic at line 71)
 - **Test Pattern**: Right-click ANY node - browser menu should NEVER appear (regardless of canShowContextMenu)
 
+### Monaco File Viewer Testing (Implemented 2026-03-05)
+- **Feature**: View file content in Monaco editor with fallback to disk read
+- **Security**: Path traversal prevention, permission checks on `/api/read-file` endpoint
+- **API Endpoint**: POST `/api/read-file` → Returns `{ content, lineCount, size, lastModified }`
+- **Fallback Logic**: Embedded content/diff → API fetch from disk → Error fallback
+- **Test Pattern**:
+  1. Files with embedded `<content>` open instantly (no API call)
+  2. Files without embedded content fetch from disk (loading spinner)
+  3. No workspace path → tooltip warning, no crash
+  4. File not found → console error, graceful failure
+  5. Security: `../../etc/passwd` → 400 Bad Request
+- **Files Modified**:
+  - `packages/mcp-server/src/http/server.ts` (lines 65-104: `/api/read-file` endpoint)
+  - `packages/ui/src/components/Modals/OutputModal.tsx` (added `workspacePath` prop, fetch logic)
+  - `packages/ui/src/components/Panel/StructuredOutputView.tsx` (same pattern as OutputModal)
+  - `packages/ui/src/components/Panel/NodeDetailPanel.tsx` (passes `workspacePath` to OutputModal)
+- **Status**: PRODUCTION READY (see MONACO_FILE_VIEWER_TEST_REPORT.md for details)
+
 ## Recent Test Sessions
 
 ### 2026-03-04: Right-Click Context Menu (Current Branch: feature/right_click_options)

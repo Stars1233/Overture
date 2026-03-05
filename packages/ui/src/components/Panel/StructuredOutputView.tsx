@@ -22,6 +22,7 @@ import {
   Copy,
   Check,
   Eye,
+  Loader2,
 } from 'lucide-react';
 import type { StructuredOutput, FileChange, FileCreated } from '@/stores/plan-store';
 import { MonacoViewerModal, FileViewerMode } from '@/components/Modals/MonacoViewerModal';
@@ -264,16 +265,19 @@ function calculateEditorHeight(content: string, maxHeight = 300, minHeight = 80)
 interface FileChangeItemProps {
   file: FileChange;
   onViewInEditor?: (file: FileChange) => void;
+  isLoading?: boolean;
+  canReadFromDisk?: boolean;
 }
 
-function FileChangeItem({ file, onViewInEditor }: FileChangeItemProps) {
+function FileChangeItem({ file, onViewInEditor, isLoading, canReadFromDisk }: FileChangeItemProps) {
   const [expanded, setExpanded] = useState(false);
   const hasDiff = Boolean(file.diff);
   const language = hasDiff && isDiffContent(file.diff!) ? 'plaintext' : getLanguageFromFilename(file.path);
+  const canView = hasDiff || canReadFromDisk;
 
   const handleViewClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (onViewInEditor && hasDiff) {
+    if (onViewInEditor) {
       onViewInEditor(file);
     }
   };
@@ -312,18 +316,22 @@ function FileChangeItem({ file, onViewInEditor }: FileChangeItemProps) {
               {file.linesRemoved}
             </span>
           )}
-          {hasDiff && (
-            <>
-              <button
-                onClick={handleViewClick}
-                className="p-1 rounded hover:bg-surface-raised transition-colors text-text-muted hover:text-accent-blue"
-                title="View in full editor"
-              >
-                <Eye className="w-3.5 h-3.5" />
-              </button>
-              <CopyButton text={file.diff!} />
-            </>
-          )}
+          <button
+            onClick={handleViewClick}
+            disabled={!canView || isLoading}
+            className={clsx(
+              'p-1 rounded transition-colors',
+              canView && !isLoading ? 'hover:bg-surface-raised text-text-muted hover:text-accent-blue' : 'text-text-muted/30 cursor-not-allowed'
+            )}
+            title={hasDiff ? "View diff in editor" : (canReadFromDisk ? "View current file" : "No workspace path available")}
+          >
+            {isLoading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Eye className="w-3.5 h-3.5" />
+            )}
+          </button>
+          {hasDiff && <CopyButton text={file.diff!} />}
         </div>
       </button>
       <AnimatePresence>
@@ -355,14 +363,17 @@ function FileChangeItem({ file, onViewInEditor }: FileChangeItemProps) {
 interface FileCreatedItemProps {
   file: FileCreated;
   onViewInEditor?: (file: FileCreated) => void;
+  isLoading?: boolean;
+  canReadFromDisk?: boolean;
 }
 
-function FileCreatedItem({ file, onViewInEditor }: FileCreatedItemProps) {
+function FileCreatedItem({ file, onViewInEditor, isLoading, canReadFromDisk }: FileCreatedItemProps) {
   const hasContent = Boolean(file.content);
+  const canView = hasContent || canReadFromDisk;
 
   const handleViewClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (onViewInEditor && hasContent) {
+    if (onViewInEditor) {
       onViewInEditor(file);
     }
   };
@@ -374,15 +385,21 @@ function FileCreatedItem({ file, onViewInEditor }: FileCreatedItemProps) {
         {file.lines !== undefined && (
           <span className="text-text-muted">{file.lines} lines</span>
         )}
-        {hasContent && (
-          <button
-            onClick={handleViewClick}
-            className="p-1 rounded hover:bg-surface-raised transition-colors text-text-muted hover:text-accent-green"
-            title="View file content"
-          >
+        <button
+          onClick={handleViewClick}
+          disabled={!canView || isLoading}
+          className={clsx(
+            'p-1 rounded transition-colors',
+            canView && !isLoading ? 'hover:bg-surface-raised text-text-muted hover:text-accent-green' : 'text-text-muted/30 cursor-not-allowed'
+          )}
+          title={hasContent ? "View file content" : (canReadFromDisk ? "Read file from disk" : "No workspace path available")}
+        >
+          {isLoading ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
             <Eye className="w-3.5 h-3.5" />
-          </button>
-        )}
+          )}
+        </button>
       </div>
     </div>
   );
@@ -468,6 +485,7 @@ function ExpandableSection({
 
 interface StructuredOutputViewProps {
   output: StructuredOutput;
+  workspacePath?: string;  // Workspace path for resolving relative file paths
 }
 
 // Modal state for viewing files
@@ -481,7 +499,40 @@ interface FileViewerState {
   linesRemoved?: number;
 }
 
-export function StructuredOutputView({ output }: StructuredOutputViewProps) {
+/**
+ * Reads file content from the server
+ */
+async function readFileContent(filePath: string): Promise<{ content: string; lineCount: number } | null> {
+  try {
+    const response = await fetch('/api/read-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath }),
+    });
+    if (!response.ok) {
+      console.error('[StructuredOutputView] Failed to read file:', filePath);
+      return null;
+    }
+    return response.json();
+  } catch (error) {
+    console.error('[StructuredOutputView] Error reading file:', error);
+    return null;
+  }
+}
+
+/**
+ * Constructs full file path from workspace path and relative path
+ */
+function getFullPath(workspacePath: string | undefined, relativePath: string): string | null {
+  if (!workspacePath) return null;
+  // Handle both Unix and Windows paths
+  const separator = workspacePath.includes('\\') ? '\\' : '/';
+  // Remove leading slashes from relative path to avoid double slashes
+  const cleanRelativePath = relativePath.replace(/^[/\\]+/, '');
+  return `${workspacePath}${separator}${cleanRelativePath}`;
+}
+
+export function StructuredOutputView({ output, workspacePath }: StructuredOutputViewProps) {
   // Modal state for file viewer
   const [fileViewer, setFileViewer] = useState<FileViewerState>({
     isOpen: false,
@@ -489,27 +540,80 @@ export function StructuredOutputView({ output }: StructuredOutputViewProps) {
     mode: 'created',
   });
 
+  // State for loading indicator
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
+
   // Handler for viewing changed files
-  const handleViewChangedFile = useCallback((file: FileChange) => {
-    setFileViewer({
-      isOpen: true,
-      filePath: file.path,
-      diff: file.diff,
-      mode: 'changed',
-      linesAdded: file.linesAdded,
-      linesRemoved: file.linesRemoved,
-    });
-  }, []);
+  const handleViewChangedFile = useCallback(async (file: FileChange) => {
+    // If diff is already present, use it directly
+    if (file.diff) {
+      setFileViewer({
+        isOpen: true,
+        filePath: file.path,
+        diff: file.diff,
+        mode: 'changed',
+        linesAdded: file.linesAdded,
+        linesRemoved: file.linesRemoved,
+      });
+      return;
+    }
+
+    // Otherwise, try to read the current file content from disk
+    const fullPath = getFullPath(workspacePath, file.path);
+    if (!fullPath) {
+      console.warn('[StructuredOutputView] Cannot read file: no workspace path available');
+      return;
+    }
+
+    setIsLoadingFile(true);
+    const result = await readFileContent(fullPath);
+    setIsLoadingFile(false);
+
+    if (result) {
+      setFileViewer({
+        isOpen: true,
+        filePath: file.path,
+        content: result.content,
+        mode: 'created', // Show as full content since we don't have diff
+        linesAdded: file.linesAdded,
+        linesRemoved: file.linesRemoved,
+      });
+    }
+  }, [workspacePath]);
 
   // Handler for viewing created files
-  const handleViewCreatedFile = useCallback((file: FileCreated) => {
-    setFileViewer({
-      isOpen: true,
-      filePath: file.path,
-      content: file.content,
-      mode: 'created',
-    });
-  }, []);
+  const handleViewCreatedFile = useCallback(async (file: FileCreated) => {
+    // If content is already present, use it directly
+    if (file.content) {
+      setFileViewer({
+        isOpen: true,
+        filePath: file.path,
+        content: file.content,
+        mode: 'created',
+      });
+      return;
+    }
+
+    // Otherwise, try to read the file content from disk
+    const fullPath = getFullPath(workspacePath, file.path);
+    if (!fullPath) {
+      console.warn('[StructuredOutputView] Cannot read file: no workspace path available');
+      return;
+    }
+
+    setIsLoadingFile(true);
+    const result = await readFileContent(fullPath);
+    setIsLoadingFile(false);
+
+    if (result) {
+      setFileViewer({
+        isOpen: true,
+        filePath: file.path,
+        content: result.content,
+        mode: 'created',
+      });
+    }
+  }, [workspacePath]);
 
   // Close modal handler
   const handleCloseViewer = useCallback(() => {
@@ -610,7 +714,13 @@ export function StructuredOutputView({ output }: StructuredOutputViewProps) {
         >
           <div className="space-y-3">
             {output.filesChanged.map((file, i) => (
-              <FileChangeItem key={i} file={file} onViewInEditor={handleViewChangedFile} />
+              <FileChangeItem
+                key={i}
+                file={file}
+                onViewInEditor={handleViewChangedFile}
+                isLoading={isLoadingFile}
+                canReadFromDisk={Boolean(workspacePath)}
+              />
             ))}
           </div>
         </ExpandableSection>
@@ -626,7 +736,13 @@ export function StructuredOutputView({ output }: StructuredOutputViewProps) {
         >
           <div className="space-y-1.5">
             {output.filesCreated.map((file, i) => (
-              <FileCreatedItem key={i} file={file} onViewInEditor={handleViewCreatedFile} />
+              <FileCreatedItem
+                key={i}
+                file={file}
+                onViewInEditor={handleViewCreatedFile}
+                isLoading={isLoadingFile}
+                canReadFromDisk={Boolean(workspacePath)}
+              />
             ))}
           </div>
         </ExpandableSection>

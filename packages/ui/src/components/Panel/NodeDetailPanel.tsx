@@ -65,7 +65,11 @@ async function uploadAttachment(file: File): Promise<{ absolutePath: string; fil
 
 export function NodeDetailPanel() {
   const { plans, selectedNodeId, selectedPlanId, setSelectedNodeId, updateFieldValue, setSelectedBranch, addAttachment, removeAttachment, updateMetaInstructions, removeNodeMcpServer } = usePlanStore();
-  const { activeTabId, setProjectFieldValue, setProjectSelectedBranch } = useMultiProjectStore();
+  const { tabs, activeTabId, setProjectFieldValue, setProjectSelectedBranch } = useMultiProjectStore();
+
+  // Get workspace path from active tab
+  const activeTab = tabs.find(t => t.projectId === activeTabId);
+  const workspacePath = activeTab?.workspacePath;
 
   // Local state for pending changes
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
@@ -746,6 +750,7 @@ export function NodeDetailPanel() {
         nodeTitle={node.title}
         output={node.output}
         structuredOutput={node.structuredOutput}
+        workspacePath={workspacePath}
       />
     </motion.div>
   );
