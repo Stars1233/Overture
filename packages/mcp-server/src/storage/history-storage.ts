@@ -72,7 +72,7 @@ class HistoryStorage {
       }
 
       // For other errors (parse error, permission error, etc.), log but don't overwrite
-      console.error('[Overture] Error loading history file:', error.message);
+      console.error('[Overture] Error loading history file:', nodeError.message || String(error));
       console.error('[Overture] NOT overwriting existing file - using empty cache');
       this.cache = {
         version: 1,

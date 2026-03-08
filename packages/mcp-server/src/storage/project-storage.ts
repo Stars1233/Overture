@@ -104,7 +104,7 @@ export class ProjectStorage {
       }
 
       // For other errors, log but create empty cache
-      console.error('[Overture] Error loading project config:', error.message);
+      console.error('[Overture] Error loading project config:', nodeError.message || String(error));
       this.cache = this.createEmptyConfig();
       return this.cache;
     }
