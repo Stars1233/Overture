@@ -1208,7 +1208,7 @@ export function handleRequestPlanUpdate(
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      results.push({ op: (operation as any).op || 'unknown', success: false, message });
+      results.push({ op: operation.op, success: false, message });
     }
   }
 

@@ -86,15 +86,16 @@ export class ProjectStorage {
       this.cache = parsed as ProjectConfig;
       console.error(`[Overture] Loaded project config: ${this.cache.history.length} history entries`);
       return this.cache;
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
+    } catch (error: unknown) {
+      const nodeError = error as NodeJS.ErrnoException;
+      if (nodeError.code === 'ENOENT') {
         // File doesn't exist, create empty config
         console.error('[Overture] Project config does not exist, creating new one');
         this.cache = this.createEmptyConfig();
         return this.cache;
       }
 
-      if (error.code === 'EACCES') {
+      if (nodeError.code === 'EACCES') {
         // Permission denied - mark for fallback to global storage
         console.error('[Overture] Permission denied reading project config, will use global storage');
         this.writePermissionDenied = true;
@@ -150,8 +151,9 @@ export class ProjectStorage {
           await fs.writeFile(this.filePath, JSON.stringify(this.cache, null, 2));
           console.error('[Overture] Project config saved to', this.filePath);
           resolve();
-        } catch (error: any) {
-          if (error.code === 'EACCES') {
+        } catch (error: unknown) {
+          const nodeError = error as NodeJS.ErrnoException;
+          if (nodeError.code === 'EACCES') {
             console.error('[Overture] Permission denied writing project config, will use global storage');
             this.writePermissionDenied = true;
             resolve(); // Don't reject - caller should fall back to global storage
@@ -187,8 +189,9 @@ export class ProjectStorage {
     try {
       await fs.writeFile(this.filePath, JSON.stringify(this.cache, null, 2));
       console.error('[Overture] Project config saved (immediate) to', this.filePath);
-    } catch (error: any) {
-      if (error.code === 'EACCES') {
+    } catch (error: unknown) {
+      const nodeError = error as NodeJS.ErrnoException;
+      if (nodeError.code === 'EACCES') {
         console.error('[Overture] Permission denied writing project config');
         this.writePermissionDenied = true;
       } else {
