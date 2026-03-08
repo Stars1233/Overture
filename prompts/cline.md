@@ -1,0 +1,1046 @@
+# Overture Integration for Cline
+
+You have access to **Overture**, an MCP server that visualizes your execution plans as interactive flowcharts before you write any code.
+
+## Why Overture Exists
+
+Every AI coding agent shares the same fundamental problem: the developer types a prompt, you start working, and they have **no visibility** into what you're planning. By the time they realize you went in the wrong direction, you've already written 200+ lines of code that needs to be discarded.
+
+**Overture solves this by making your plan visible, editable, and approvable before execution begins.**
+
+## When to Use Overture
+
+**USE** Overture for any task involving:
+- Multiple steps or files to create/modify
+- Architectural decisions the user should weigh in on
+- User configuration (API keys, preferences, settings)
+- Complex implementations with multiple valid approaches
+- Tasks where getting alignment upfront saves significant rework
+
+**DO NOT USE (Except if the user explicitity asks you to)** Overture for:
+- Simple questions or explanations
+- Single-file, small edits
+- Quick bug fixes with obvious solutions
+- Research or exploration tasks
+
+
+---
+
+## Consistency
+
+These rules are mandatory and must never be broken:
+
+- **ONE NODE EXECUTION AT A TIME**: Only one node must be executed at a time. Going forward and executing the next or several nodes ahead of time is strictly prohibited.
+- **CORRELATION TO OVERALL GOAL AND CONTINUATION OF PREVIOUS NODES**: While working on one node, implementation must stay correlated to the overall goal and continue smoothly from previous nodes. Example: if the overall goal is a portfolio and this node is the hero section, build a portfolio hero section (not a generic one), and continue prior styling patterns (spacing, visual language, and flow) so the result is cohesive.
+
+## Critical: Extended Planning Mode
+
+**Your plans must be comprehensive, deeply detailed, and broken down to the atomic level.**
+
+Unlike simple 5-10 step outlines, Overture expects you to generate **fully decomposed plans** where every task is broken into its smallest meaningful units. This is not optional — thorough planning prevents wasted tokens, wasted time, and developer frustration.
+
+### Planning Requirements
+
+For every task you receive, your plan must include:
+
+1. **Atomic Decomposition**: Break every task into its smallest executable steps
+2. **Rich Node Details**: Every node needs title, description, complexity, expected output, and risks
+3. **Branch Points**: When multiple valid approaches exist, create separate task nodes for each option and connect them from a common parent node
+4. **Dynamic Fields**: Declare any inputs needed from the user (API keys, config, preferences)
+5. **Logical Dependencies**: Edges should reflect true execution order
+
+### The Golden Rule: ONE COMPONENT = ONE NODE
+
+**NEVER combine multiple components or features into a single node.** Each UI component, each API endpoint, each configuration step gets its own dedicated node.
+
+### Example: Good vs. Bad Planning
+
+**BAD PLAN (lazy, combined steps - DO NOT DO THIS):**
+```
+1. Set up project
+2. Build the frontend
+3. Add backend API
+4. Deploy
+```
+
+**GOOD PLAN (atomic decomposition - THIS IS WHAT WE WANT):**
+```
+1. Initialize Vite + React project with TypeScript
+2. Configure Tailwind CSS with custom theme
+3. Create Header component
+   - Logo placement and sizing
+   - Navigation items with responsive menu
+   - Dark mode toggle
+4. Create Hero section
+   - Headline and subheadline copy
+   - CTA button with hover states
+   - Background gradient/image
+   - Entrance animations
+5. Create Features section
+   - Grid layout (3 columns on desktop, 1 on mobile)
+   - Feature card component
+   - Icon selection for each feature
+6. Create Testimonials section
+   - Testimonial card component
+   - Avatar, name, role, quote
+7. Create Pricing section
+   - Monthly/Annual toggle
+   - PricingCard component
+   - Feature comparison list
+8. Create Footer component
+   - Link groups
+   - Newsletter signup form
+   - Social media icons
+9. Create Contact form
+   - Form fields (name, email, message)
+   - Validation logic
+   - Submit handler
+10. Add SEO meta tags and Open Graph
+11. Configure deployment (Vercel/Netlify)
+    - Environment variables
+    - Build configuration
+```
+
+**Notice:** Each component (Header, Hero, Features, Footer, etc.) is its **own separate node**. Do NOT combine "Header, Hero, and Footer" into one "Build UI components" node.
+
+Each of these becomes a node on the visual canvas.
+
+---
+
+## MCP Tools
+
+Use these tools via `use_mcp_tool` with server name `overture`:
+
+| Tool | Input | Purpose |
+|------|-------|---------|
+| `submit_plan` | `{ plan_xml, workspace_path?, agent_type? }` | Submit complete XML plan |
+| `stream_plan_chunk` | `{ xml_chunk, workspace_path?, agent_type? }` | Stream XML incrementally |
+| `get_approval` | `{ project_id?, workspace_path? }` | Wait for user approval (may return "pending" — call again) |
+| `update_node_status` | `{ node_id, status, output?, project_id?, workspace_path? }` | Update execution progress |
+| `plan_completed` | `{ project_id?, workspace_path? }` | Mark plan done |
+| `plan_failed` | `{ error, project_id?, workspace_path? }` | Mark plan failed |
+| `check_rerun` | `{ timeout_ms?, project_id?, workspace_path? }` | Check if user wants to re-run nodes (call after plan_completed) |
+| `check_pause` | `{ wait?, project_id?, workspace_path? }` | Check if user paused execution (call before each node) |
+| `get_resume_info` | `{ project_id?, workspace_path? }` | Get state info for resuming a paused/failed plan |
+| `request_plan_update` | `{ operations, project_id?, workspace_path? }` | Apply incremental updates to the plan (insert, delete, replace) |
+| `create_new_plan` | `{ project_id?, workspace_path? }` | Signal you're creating a new unrelated plan (adds alongside existing) |
+| `get_node_info` | `{ node_id, project_id?, workspace_path? }` | Get detailed information about a specific node |
+| `update_node_detail` | `{ node_id, updates, project_id?, workspace_path? }` | Update a single node's details (title, description, etc.) |
+| `update_nodes_detail` | `{ updates[], project_id?, workspace_path? }` | Batch update multiple nodes' details |
+
+### Multi-Project Support
+
+Overture supports multiple projects running simultaneously. Each project gets its own tab in the UI.
+
+- **`workspace_path`**: Pass the absolute path to your project directory when calling ANY Overture tool. This enables:
+  - Project isolation (separate history per folder)
+  - Local `.overture.json` storage in your project
+  - Consistent project tracking across all operations
+- **`agent_type`**: Identify yourself (e.g., "cline") so the UI shows the correct agent name.
+- **`project_id`** / **`expected_project_id`**: **CRITICAL** - These are returned in the response from `submit_plan`. **YOU MUST use this exact value** in ALL subsequent calls (`get_approval`, `update_node_status`, `plan_completed`, etc.). The frontend uses this ID to match your approval request.
+
+**Example workflow:**
+```
+1. Call submit_plan({ plan_xml, workspace_path: "/path/to/project" })
+2. Response: { success: true, projectId: "84393059027d", expected_project_id: "84393059027d" }
+3. Call get_approval({ project_id: "84393059027d", workspace_path: "/path/to/project" })
+4. Call update_node_status({ node_id: "n1", status: "active", project_id: "84393059027d", workspace_path: "/path/to/project" })
+5. Call update_node_status({ node_id: "n1", status: "completed", output: "...", project_id: "84393059027d", workspace_path: "/path/to/project" })
+6. Call plan_completed({ project_id: "84393059027d", workspace_path: "/path/to/project" })
+```
+
+If you don't pass `workspace_path`, Overture uses a default project which works fine for single-project scenarios.
+
+### Updating an Existing Plan
+
+When the user requests changes to an existing plan, use `request_plan_update` with an array of operations:
+
+**Supported operations:**
+- `insert_after` - Insert a node after a reference node
+- `insert_before` - Insert a node before a reference node
+- `delete` - Delete a node (edges auto-reconnect)
+- `replace` - Replace a node's content in-place
+
+**Example:**
+```json
+request_plan_update({
+  "operations": [
+    {
+      "op": "insert_after",
+      "reference_node_id": "node_api",
+      "node": {
+        "id": "node_test",
+        "type": "task",
+        "title": "Run unit tests",
+        "description": "Execute test suite"
+      }
+    },
+    { "op": "delete", "node_id": "node_deploy" },
+    {
+      "op": "replace",
+      "node_id": "node_5",
+      "node": { "title": "Updated title", "description": "Updated description" }
+    }
+  ]
+})
+```
+
+After calling `request_plan_update`, call `get_approval()` to confirm changes.
+
+### Creating a New Unrelated Plan
+
+If the user asks for something completely unrelated to the current plan (e.g., "forget that, let's build X instead"):
+
+1. **Call `create_new_plan`** — This clears the current plan state
+2. **Call `submit_plan`** with the new plan XML
+3. **Call `get_approval`** to wait for user approval
+4. Proceed with execution once approved
+
+**Example workflow:**
+```
+1. User: "Actually, let's work on the authentication system instead"
+2. You call: create_new_plan({ project_id })
+3. You call: submit_plan({ plan_xml: "<new auth system plan>" })
+4. You call: get_approval({ project_id })
+5. Execute nodes as normal
+```
+
+### Node Information and Updates
+
+These tools allow you to query and modify node details programmatically during execution.
+
+#### get_node_info
+
+Retrieve detailed information about a specific node, including all user-configured values.
+
+**Parameters:**
+- `node_id` (required): The ID of the node to query
+- `project_id` (optional): Project ID (uses current project if not specified)
+
+**Returns:**
+```json
+{
+  "success": true,
+  "node": {
+    "id": "n1",
+    "title": "Initialize Project",
+    "type": "task",
+    "status": "pending",
+    "description": "Set up the project structure",
+    "complexity": "low",
+    "expectedOutput": "package.json and project files created",
+    "risks": "None significant",
+    "fieldValues": { "project_name": "my-app" },
+    "attachments": [{ "path": "/path/to/spec.md", "name": "spec.md", "type": "document" }],
+    "mcpServers": [],
+    "metaInstructions": "Use TypeScript strict mode",
+    "isBranchPoint": false,
+    "branchTargetIds": [],
+    "selectedBranchId": null,
+    "branchSourceId": null,
+    "output": null
+  },
+  "projectId": "84393059027d"
+}
+```
+
+**When to use:**
+- When you need to check a node's current state before taking action
+- When resuming execution and you need full node context
+- When you need to verify what fieldValues or attachments are configured
+
+#### update_node_detail
+
+Update a single node's metadata during execution. The UI updates in real-time.
+
+**Parameters:**
+- `node_id` (required): The ID of the node to update
+- `updates` (required): Object containing fields to update
+  - `title` (optional): New title for the node
+  - `description` (optional): New description
+  - `complexity` (optional): "low" | "medium" | "high"
+  - `expectedOutput` (optional): Updated expected output
+  - `risks` (optional): Updated risks
+- `project_id` (optional): Project ID
+
+**Example:**
+```json
+update_node_detail({
+  "node_id": "n3",
+  "updates": {
+    "title": "Configure PostgreSQL Database",
+    "description": "Set up PostgreSQL with connection pooling based on user's database URL",
+    "complexity": "medium"
+  }
+})
+```
+
+**When to use:**
+- When you discover during execution that a node's description needs clarification
+- When the actual implementation differs from the original plan
+- When you want to add more detail to a node based on what you learned
+
+#### update_nodes_detail
+
+Batch update multiple nodes at once. More efficient than calling `update_node_detail` multiple times.
+
+**Parameters:**
+- `updates` (required): Array of update objects, each containing:
+  - `node_id` (required): The ID of the node to update
+  - `title` (optional): New title
+  - `description` (optional): New description
+  - `complexity` (optional): "low" | "medium" | "high"
+  - `expectedOutput` (optional): Updated expected output
+  - `risks` (optional): Updated risks
+- `project_id` (optional): Project ID
+
+**Example:**
+```json
+update_nodes_detail({
+  "updates": [
+    {
+      "node_id": "n3",
+      "title": "Updated: Configure Database",
+      "complexity": "high"
+    },
+    {
+      "node_id": "n4",
+      "description": "Now using Prisma ORM instead of raw SQL"
+    },
+    {
+      "node_id": "n5",
+      "risks": "API rate limiting may apply - added retry logic"
+    }
+  ]
+})
+```
+
+**When to use:**
+- When multiple nodes need updates based on discoveries during execution
+- When refining the plan after partial execution
+- When you need to update node details efficiently in bulk
+
+---
+
+## XML Plan Schema
+
+```xml
+<plan id="plan_id" title="Comprehensive Plan Title" agent="cline">
+  <nodes>
+    <!-- Task node with full details -->
+    <node id="n1" type="task" status="pending">
+      <title>Clear, specific step title</title>
+      <description>
+        Detailed explanation of what this step accomplishes.
+        Include context about why this step is necessary.
+      </description>
+      <complexity>low|medium|high</complexity>
+      <expected_output>
+        Specific deliverables: files created, APIs integrated, etc.
+      </expected_output>
+      <risks>
+        What could go wrong? How will you handle edge cases?
+      </risks>
+
+      <!-- Dynamic fields for user input -->
+      <dynamic_field
+        id="f1"
+        name="variable_name"
+        type="string|secret|select|boolean|number"
+        required="true|false"
+        title="Human-readable Label"
+        description="Help text explaining what this is for"
+        value="default_value"
+        options="opt1,opt2,opt3"
+        setup_instructions="How to obtain this value (e.g., 'Get from dashboard.stripe.com')"
+      />
+    </node>
+
+    <!-- Branch point: n1 has multiple outgoing edges, creating a choice -->
+    <!-- Each branch option is a real task node with pros/cons -->
+
+    <!-- Branch Option A -->
+    <node id="n2_a" type="task" status="pending">
+      <title>Option A: First Approach</title>
+      <description>What this approach entails</description>
+      <complexity>medium</complexity>
+      <pros>Advantages of this choice</pros>
+      <cons>Disadvantages or tradeoffs</cons>
+    </node>
+
+    <!-- Branch Option B -->
+    <node id="n2_b" type="task" status="pending">
+      <title>Option B: Second Approach</title>
+      <description>What this approach entails</description>
+      <complexity>medium</complexity>
+      <pros>Advantages of this choice</pros>
+      <cons>Disadvantages or tradeoffs</cons>
+    </node>
+
+    <!-- Task after branch convergence -->
+    <node id="n3" type="task" status="pending">
+      <title>Continue with shared step</title>
+      <description>This runs after the selected branch completes</description>
+      <complexity>low</complexity>
+    </node>
+  </nodes>
+
+  <edges>
+    <!-- n1 branches to multiple options - user must select one -->
+    <edge id="e1" from="n1" to="n2_a" />
+    <edge id="e2" from="n1" to="n2_b" />
+    <!-- Both branches converge to n3 -->
+    <edge id="e3" from="n2_a" to="n3" />
+    <edge id="e4" from="n2_b" to="n3" />
+  </edges>
+</plan>
+```
+
+---
+
+## Branching Rules (Graph-Based Branch Detection)
+
+Branches are **inferred from the graph structure**, not declared explicitly. When a node has multiple outgoing edges, it becomes a branch point.
+
+### How Branches Work
+
+1. **Branch Detection**: When a node has multiple outgoing edges (e.g., `n1 -> n2_a` and `n1 -> n2_b`), the system detects it as a branch point
+2. **Branch Options**: The target nodes (`n2_a`, `n2_b`) become the branch options displayed to the user
+3. **User Selection**: The UI shows a "Select Branch" requirement. User clicks to see options and selects one
+4. **Execution**: Only the selected branch path is executed; unselected branches are skipped
+
+### Rule 1: Each branch option is a real task node
+Branch options are full task nodes with their own title, description, and work to perform:
+```xml
+<!-- Branch Option A -->
+<node id="n2_a" type="task" status="pending">
+  <title>Option A: Use Tailwind CSS</title>
+  <description>Set up styling with Tailwind CSS utility classes</description>
+  <pros>Fast development, consistent design, small bundle size</pros>
+  <cons>HTML can get verbose with many utility classes</cons>
+  <complexity>low</complexity>
+</node>
+
+<!-- Branch Option B -->
+<node id="n2_b" type="task" status="pending">
+  <title>Option B: Use CSS Modules</title>
+  <description>Set up styling with scoped CSS modules</description>
+  <pros>Clean HTML, full CSS control, familiar syntax</pros>
+  <cons>More files to manage, slower iteration</cons>
+  <complexity>low</complexity>
+</node>
+```
+
+### Rule 2: Use edges to create branches
+Connect multiple edges from the same source node to create a branch point:
+```xml
+<edges>
+  <!-- n1 branches to n2_a and n2_b - user must select one -->
+  <edge id="e1" from="n1" to="n2_a" />
+  <edge id="e2" from="n1" to="n2_b" />
+</edges>
+```
+
+### Rule 3: Branches can converge
+After branch-specific tasks, connect all branches to a common next step:
+```xml
+<!-- Common task after all branches -->
+<node id="n3" type="task">
+  <title>Continue with styling</title>
+</node>
+
+<edge from="n2_a" to="n3" />
+<edge from="n2_b" to="n3" />
+```
+
+### Rule 4: Include pros and cons on branch options
+Add `<pros>` and `<cons>` directly on branch option nodes to help users decide:
+```xml
+<node id="n2_postgres" type="task" status="pending">
+  <title>Set up PostgreSQL</title>
+  <pros>ACID compliance, complex queries, strong ecosystem</pros>
+  <cons>Requires server setup, more complex scaling</cons>
+</node>
+```
+
+---
+
+## Dynamic Field Types
+
+| Type | Use Case | Example |
+|------|----------|---------|
+| `string` | Text input | Project name, domain name |
+| `secret` | Sensitive data (masked) | API keys, tokens, passwords |
+| `select` | Choice from options | Database type, framework |
+| `boolean` | Yes/No toggle | Enable feature X? |
+| `number` | Numeric input | Port number, timeout |
+| `question` | User question with optional dropdown | Preference questions, requirements |
+| `color` | Color picker with hex input | Theme color, brand color |
+
+**Always add `setup_instructions`** for fields that require the user to obtain a value from an external source.
+
+### Question Field Examples
+
+```xml
+<!-- Question with dropdown options -->
+<dynamic_field
+  id="q1"
+  type="question"
+  name="preferred_database"
+  title="Which database do you prefer?"
+  description="Select your preferred database"
+  options="PostgreSQL,MySQL,MongoDB,SQLite"
+  required="true"
+/>
+
+<!-- Question with free-form text input (no options) -->
+<dynamic_field
+  id="q2"
+  type="question"
+  name="custom_requirement"
+  title="Any specific requirements?"
+  description="Describe your requirements"
+/>
+```
+
+### Color Field Example
+
+```xml
+<dynamic_field
+  id="c1"
+  type="color"
+  name="theme_color"
+  title="Theme Color"
+  description="Choose your brand color"
+  value="#3b82f6"
+  required="true"
+/>
+```
+
+---
+
+## CRITICAL: Node-by-Node Execution (DO NOT OVER-IMPLEMENT)
+
+**YOU MUST ONLY IMPLEMENT THE CURRENT NODE.** This is non-negotiable.
+
+When you receive a node (via `firstNode` from `get_approval` or `nextNode` from `update_node_status`), you must:
+
+### DO:
+- **ONLY** implement what is described in that specific node's `title` and `description`
+- **CONSUME ALL** fields in `fieldValues` — every single one must be used
+- **READ AND USE ALL** files in `attachments` — do not ignore any attached file
+- **FOLLOW EXACTLY** the `metaInstructions` if present — these are user directives
+- **USE THE MCP SERVER** as specified in `mcpServers.formattedInstructions` if present
+- **RESPECT** the node's `complexity`, `expectedOutput`, and `risks`
+
+### DO NOT:
+- Implement tasks from future nodes
+- "Get ahead" by doing work not specified in the current node
+- Skip any field, attachment, or instruction in the current node
+- Assume what comes next — wait for the next node
+- Add features or functionality not explicitly in the node description
+
+### Why This Matters
+
+Each node is a contract. The user approved a specific plan with specific nodes. If you over-implement:
+- You break the visual progress tracking (nodes won't match actual work)
+- You may contradict decisions the user will make in future nodes
+- You waste tokens on work that might need to be redone
+- You violate the user's trust in the plan they approved
+
+### Checklist Before Completing a Node
+
+Before calling `update_node_status(node_id, "completed", output)`, verify:
+- [ ] **Did I check for `mcpServers` FIRST?** (If present, did I install it if needed?)
+- [ ] **Did I USE the `mcpServers` tools** as specified in `formattedInstructions`? (if present)
+- [ ] Did I implement ONLY what this node's description specified?
+- [ ] Did I use EVERY value in `fieldValues`?
+- [ ] Did I read and incorporate EVERY file in `attachments`?
+- [ ] Did I follow the `metaInstructions` exactly?
+- [ ] Did I NOT do any work belonging to other nodes?
+- [ ] **Did I format the output using structured XML?** (See Structured Output Format in overture-instructions.md)
+
+## Structured Output Format
+
+When completing a node, you can provide structured XML output that will be rendered in a rich, expandable UI. This is **optional** but **recommended** for better user experience.
+
+### XML Schema
+
+```xml
+<execution_output>
+  <!-- Summary of what was accomplished (required) -->
+  <overview>Brief description of what was done in this node</overview>
+
+  <!-- Files that were modified -->
+  <files_changed>
+    <file path="src/components/Button.tsx" lines_added="15" lines_removed="3">
+      <diff><![CDATA[
+@@ -10,3 +10,15 @@
+- const Button = () => {
++ const Button = ({ variant = 'primary' }) => {
+      ]]></diff>
+    </file>
+  </files_changed>
+
+  <!-- New files created -->
+  <files_created>
+    <file path="src/utils/helpers.ts" lines="42" />
+  </files_created>
+
+  <!-- Files deleted -->
+  <files_deleted>
+    <file path="src/old-component.tsx" />
+  </files_deleted>
+
+  <!-- Packages installed -->
+  <packages_installed>
+    <package name="zustand" version="4.5.0" dev="false" />
+    <package name="@types/node" version="20.0.0" dev="true" />
+  </packages_installed>
+
+  <!-- MCP servers configured -->
+  <mcp_setup>
+    <server name="github" status="installed" />
+  </mcp_setup>
+
+  <!-- Web searches performed -->
+  <web_searches>
+    <search query="React 19 new features" results_used="3" />
+  </web_searches>
+
+  <!-- Tool calls made (summarized) -->
+  <tool_calls>
+    <tool name="Read" count="5" />
+    <tool name="Edit" count="3" />
+    <tool name="Bash" count="2" />
+  </tool_calls>
+
+  <!-- Preview/dev server URLs -->
+  <preview_urls>
+    <url type="dev_server">http://localhost:5173</url>
+  </preview_urls>
+
+  <!-- Warnings or notes -->
+  <notes>
+    <note type="warning">API key not configured, using mock data</note>
+    <note type="info">Consider adding error boundary</note>
+  </notes>
+</execution_output>
+```
+
+### Usage Example
+
+When you call `update_node_status` with "completed" status, include the structured output:
+
+```
+update_node_status(n1, "completed", "<execution_output>
+  <overview>Created React component with TypeScript types</overview>
+  <files_created>
+    <file path=\"src/components/Header.tsx\" lines=\"45\" />
+    <file path=\"src/components/Header.test.tsx\" lines=\"28\" />
+  </files_created>
+  <packages_installed>
+    <package name=\"@testing-library/react\" version=\"14.0.0\" dev=\"true\" />
+  </packages_installed>
+</execution_output>")
+```
+
+### Guidelines
+
+1. **Always include `<overview>`** - A brief summary of what was accomplished
+2. **Include only relevant sections** - Don't add empty sections
+3. **Use CDATA for diffs** - Wrap diff content in `<![CDATA[...]]>` to avoid XML parsing issues
+4. **Note types**: Use `info` for suggestions, `warning` for potential issues, `error` for problems
+5. **Be concise** - Keep descriptions short but informative
+
+---
+
+## Handling Manual Approval (Skipping get_approval)
+
+Sometimes users may manually approve a plan by typing "yes", "approve", "go ahead", or similar directly in the chat, bypassing the `get_approval` flow. When this happens:
+
+**What to do when the user manually approves:**
+
+If the user types approval directly instead of using the Overture UI:
+1. **Skip waiting on `get_approval`** — the user already said yes
+2. **Immediately call `update_node_status(first_node_id, "active")`** — Overture will auto-sync
+3. **Execute the first node** — use the plan you submitted
+4. **Continue normal execution flow** — call `update_node_status` as you complete each node
+
+```
+User: "looks good, start" (manual approval in chat)
+You: → Find first node from your submitted plan
+     → Call update_node_status(first_node_id, "active")
+     → Overture auto-approves and syncs UI
+     → Execute the node
+     → Call update_node_status(first_node_id, "completed", output)
+     → Get nextNode from response, continue...
+```
+
+This ensures the visual progress stays in sync even when users bypass the formal approval flow.
+
+---
+
+## Execution Workflow
+
+```
+1. Receive task from user
+2. Generate comprehensive XML plan (see planning requirements above)
+3. Call submit_plan (or stream_plan_chunk for incremental delivery)
+4. Call get_approval
+   - If status is "pending", wait and call again
+   - If status is "approved", you receive firstNode with all its config
+   - If status is "cancelled", stop
+5. FOR EACH NODE (starting with firstNode), execute in this EXACT order:
+   a. Call update_node_status(node_id, "active")
+
+   b. **FIRST: CHECK FOR MCP SERVER** ← THIS IS MANDATORY
+      - If node.mcpServers exists:
+        1. Check if MCP server is already installed/configured
+        2. If NOT installed: STOP and install it following mcpServers.readmeContent
+        3. Verify installation by calling one of the MCP server's tools
+        4. Only then proceed to use it for the node's task
+
+   c. Execute the node's task using:
+      - node.fieldValues (use ALL of them)
+      - node.attachments (read and use ALL files)
+      - node.metaInstructions (follow EXACTLY)
+      - node.mcpServers tools (if present, use as specified in formattedInstructions)
+
+   d. Call update_node_status(node_id, "completed", output)
+   e. Check response: if isPaused is true, call check_pause({ wait: true })
+   f. Get nextNode from response, or isLastNode: true
+
+6. Repeat step 5 for each nextNode until isLastNode is true
+7. Call plan_completed
+```
+
+### ⚠️ MCP SERVER CHECK IS STEP 5b - DO NOT SKIP
+
+When you receive ANY node (firstNode or nextNode), your **FIRST ACTION** after marking it active must be:
+
+```
+IF node.mcpServers EXISTS:
+  → STOP everything else
+  → Try to use one of the MCP server's tools to check if it's installed
+  → If you get "No connection found" or similar error:
+      ╔══════════════════════════════════════════════════════════════╗
+      ║  DO NOT SKIP TO THE NEXT NODE                                ║
+      ║  DO NOT IGNORE THIS ERROR                                    ║
+      ║  YOU MUST INSTALL THE MCP SERVER NOW                         ║
+      ╚══════════════════════════════════════════════════════════════╝
+      1. Read mcpServers.readmeContent for installation instructions
+      2. Install the MCP server (uvx, pip, docker, etc.)
+      3. Configure it in the MCP settings file
+      4. Retry the tool call to verify installation
+  → Once working, use the MCP server for the node's task
+```
+
+### 🚨 CRITICAL: "No connection found" Error Handling
+
+If you attempt to use an MCP tool and receive an error like:
+```
+Error executing MCP tool: No connection found for server: [server-name]
+```
+
+**THIS IS NOT A REASON TO SKIP THE NODE OR PROCEED WITHOUT THE MCP SERVER.**
+
+You MUST:
+1. **STOP** - Do not continue with the node's task
+2. **INSTALL** - Follow the installation instructions in `mcpServers.readmeContent`
+3. **CONFIGURE** - Add the server to the MCP settings file
+4. **VERIFY** - Call the tool again to confirm it works
+5. **THEN CONTINUE** - Only after successful verification, proceed with the node's task
+
+**The user attached this MCP server because they NEED it for this node. Skipping it defeats the entire purpose.**
+
+## Response Payloads
+
+### get_approval (when approved)
+```json
+{
+  "status": "approved",
+  "firstNode": {
+    "id": "n1",
+    "title": "Initialize Project",
+    "type": "task",
+    "description": "Set up the project structure",
+    "fieldValues": { "api_key": "sk-..." },
+    "attachments": [{ "path": "/path/to/file", "name": "spec.md", "type": "document" }],
+    "metaInstructions": "Use TypeScript strict mode",
+    "mcpServers": { ... }
+  },
+  "message": "Plan approved by user. Execute firstNode, then call update_node_status to get the next node."
+}
+```
+
+**Note:** Each node's configuration (fieldValues, attachments, metaInstructions, mcpServers) is included directly in the node object. You receive nodes one at a time — `firstNode` from `get_approval`, then `nextNode` from each `update_node_status` call.
+
+### update_node_status (when completed)
+```json
+{
+  "success": true,
+  "message": "Node n1 status updated to completed",
+  "nextNode": {
+    "id": "n2",
+    "title": "Configure Database",
+    "type": "task",
+    "description": "Set up database connection",
+    "fieldValues": { "database_url": "postgres://..." },
+    "attachments": [],
+    "metaInstructions": "Use connection pooling"
+  }
+}
+```
+
+When it's the last node:
+```json
+{
+  "success": true,
+  "message": "Node n5 status updated to completed. This was the last node.",
+  "isLastNode": true
+}
+```
+
+### check_rerun (after plan_completed)
+```json
+{
+  "hasRerun": true,
+  "nodeId": "n3",
+  "mode": "single",  // or "to-bottom"
+  "nodeInfo": {
+    "id": "n3",
+    "title": "Alternative Implementation",
+    "type": "task",
+    "fieldValues": { ... },
+    "attachments": [ ... ],
+    "metaInstructions": "..."
+  },
+  "message": "Rerun requested from node n3 (single)"
+}
+```
+
+## Pause/Resume Workflow
+
+Users can pause execution at any time by clicking the pause button or pressing Space. The `isPaused` flag is included in every `update_node_status` response, so you don't need to poll.
+
+```
+After completing a node:
+1. Call update_node_status(node_id, "completed", output)
+2. Check response.isPaused:
+   - If false → proceed to nextNode
+   - If true → call check_pause({ wait: true }) to block until resumed
+3. Continue execution
+```
+
+### update_node_status Response (with pause)
+```json
+{
+  "success": true,
+  "message": "Node n1 status updated to completed",
+  "nextNode": { ... },
+  "isPaused": true
+}
+```
+
+---
+
+## Resume Plan Workflow
+
+When a plan was paused, failed, or loaded from history, use `get_resume_info` to understand where execution stopped and continue from there.
+
+### get_resume_info Response
+```json
+{
+  "success": true,
+  "resumeInfo": {
+    "planId": "plan_123",
+    "planTitle": "Build Authentication System",
+    "agent": "cline",
+    "status": "paused",
+    "projectId": "abc123",
+    "workspacePath": "/Users/dev/my-project",
+
+    "currentNodeId": "n3",
+    "currentNodeTitle": "Configure Database",
+    "currentNodeStatus": "active",
+
+    "completedNodes": [
+      { "id": "n1", "title": "Initialize Project", "output": "Created package.json..." },
+      { "id": "n2", "title": "Install Dependencies", "output": "Installed 15 packages" }
+    ],
+    "pendingNodes": [
+      { "id": "n4", "title": "Create User Model", "description": "Define user schema..." },
+      { "id": "n5", "title": "Implement Auth Routes", "description": "Create login/signup..." }
+    ],
+    "failedNodes": [],
+
+    "fieldValues": { "n3.database_url": "postgres://..." },
+    "selectedBranches": { "n2": "branch_prisma" },
+    "nodeConfigs": { ... },
+
+    "createdAt": "2024-01-15T10:30:00Z",
+    "pausedAt": "2024-01-15T11:45:00Z"
+  },
+  "message": "Resume info retrieved. Plan is at status 'paused'. Current node: Configure Database (active). Completed: 2, Pending: 2, Failed: 0"
+}
+```
+
+### Resume Workflow
+
+```
+1. Call get_resume_info to understand the current state
+2. Identify the current node (resumeInfo.currentNodeId)
+3. If currentNodeStatus is "active" or "failed":
+   - Resume execution from that node
+   - Use the fieldValues, selectedBranches, and nodeConfigs
+4. Call update_node_status to continue the normal execution flow
+5. Proceed with subsequent nodes until isLastNode is true
+6. Call plan_completed when done
+```
+
+### When to Use get_resume_info
+
+- After a plan was **paused** by the user and you need to resume
+- After a plan **failed** and you want to retry from the failed node
+- When loading a plan from **history** to continue where it left off
+- When you lose context and need to understand the current execution state
+
+---
+
+## Re-run Workflow
+
+After `plan_completed`, users can click nodes to re-run them:
+- **Single node**: Re-run just that node
+- **To bottom**: Re-run from that node to the end
+
+```
+1. Call plan_completed when done
+2. Loop: call check_rerun (with short timeout like 5000ms)
+   - If hasRerun is false, continue looping or exit after some time
+   - If hasRerun is true:
+     a. Execute the nodeInfo returned (same as normal execution)
+     b. If mode is "to-bottom", continue to subsequent nodes
+     c. Call plan_completed again when done
+     d. Return to step 2 to check for more reruns
+```
+
+---
+
+## What the User Can Do in Overture UI
+
+Before approving, users can:
+- **View details** of any node by clicking it
+- **Fill in dynamic fields** (API keys, configuration)
+- **Select branches** at decision points
+- **Attach files** that you should reference during that node's execution
+- **Add instructions** specific to each node (meta instructions)
+
+All of this context is returned to you when they approve, so you can execute exactly what they want.
+
+---
+
+## MCP Server Integration (CRITICAL)
+
+Users can attach **MCP servers** to individual nodes to extend your capabilities. When a node has an MCP server attached, the `nextNode` response will include an `mcpServers` object with a `formattedInstructions` field.
+
+### Example Response with MCP Server
+```json
+{
+  "success": true,
+  "nextNode": {
+    "id": "n5",
+    "title": "Generate product images",
+    "fieldValues": { ... },
+    "attachments": [],
+    "mcpServers": {
+      "name": "replicate-mcp",
+      "author": "replicate",
+      "description": "Generate images using Replicate AI models",
+      "githubUrl": "https://github.com/replicate/replicate-mcp",
+      "requiresApiKey": true,
+      "readmeContent": "# replicate-mcp\n\n## Installation\n...",
+      "formattedInstructions": "=== MCP SERVER INTEGRATION ===\n..."
+    }
+  }
+}
+```
+
+### MANDATORY Requirements
+
+When `mcpServers` is present on a node:
+
+1. **YOU MUST** use the MCP server exactly as described by the user in `formattedInstructions`
+2. **YOU MUST** follow the user's intended usage precisely — they specified why they attached this MCP
+3. **IF THE MCP SERVER IS NOT AVAILABLE OR NOT CONFIGURED**, follow the Setup Instructions below
+
+### Setup Instructions (When MCP Server Not Available)
+
+The `mcpServers.formattedInstructions` field now includes **provider-specific setup instructions** tailored for Cline. Follow them exactly.
+
+**Cline MCP Configuration File Locations:**
+- **macOS:** `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
+- **Windows:** `%APPDATA%\Code\User\globalStorage\saoudrizwan.claude-dev\settings\cline_mcp_settings.json`
+- **Linux:** `~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
+
+**Setup Steps:**
+1. **Read the existing MCP settings file** — DO NOT overwrite other servers
+2. **Add the new server** to the `"mcpServers"` object
+3. **Save the file**
+4. **Verify** by calling one of the MCP server's tools
+
+**Example Configuration:**
+```json
+{
+  "mcpServers": {
+    "server-name": {
+      "command": "uvx",
+      "args": ["mcp-server-name"],
+      "disabled": false
+    }
+  }
+}
+```
+
+### Setup Workflow
+
+```
+1. Try to use the MCP server
+2. If you get "No connection found" error:
+   a. Read mcpServers.formattedInstructions for provider-specific setup
+   b. Read mcpServers.readmeContent for installation commands
+   c. Read existing MCP settings file (DO NOT OVERWRITE existing servers)
+   d. Add the new server configuration
+   e. Install dependencies (uvx, pip, etc.)
+   f. Retry the MCP tool call to verify installation
+3. Once working, use the MCP server for the node's task
+```
+
+### Why This Matters
+
+Users attach MCP servers because they want specific capabilities for specific nodes. Ignoring this is equivalent to ignoring their explicit instructions. The `mcpServers` object contains everything you need:
+- `name`, `author`, `description` — Server identification
+- `githubUrl` — Source repository for documentation
+- `readmeContent` — Installation and usage instructions
+- `requiresApiKey` — Whether API key configuration is needed
+- `formattedInstructions` — User's intended usage and critical compliance instructions
+
+**Always check for `mcpServers` on every node and honor its instructions.**
+
+---
+
+## Best Practices
+
+1. **Over-plan, don't under-plan**: More nodes = more transparency = happier user
+2. **Create branch points**: When multiple approaches exist, create separate task nodes for each option so users can choose
+3. **Add dynamic fields upfront**: Collect all config before starting execution
+4. **Be specific in descriptions**: Users should understand each step without guessing
+5. **Include risks**: Show you've thought about edge cases
+6. **Update status frequently**: Call `update_node_status` so users see progress
+7. **Handle meta instructions**: When a node has `metaInstructions`, follow them carefully
+8. **Reference attachments**: When a node has file attachments, read/use those files
+9. **Honor MCP servers**: When a node has `mcpServers`, follow its `formattedInstructions` precisely
+
+---
+
+> "The best time to shape the plan is before the first line of code is written." — Overture by Sixth
