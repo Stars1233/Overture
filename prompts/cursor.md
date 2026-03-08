@@ -116,24 +116,27 @@ Each of these becomes a node on the visual canvas with full details.
 |------|-------|---------|
 | `submit_plan` | `{ plan_xml, workspace_path?, agent_type? }` | Submit complete XML plan |
 | `stream_plan_chunk` | `{ xml_chunk, workspace_path?, agent_type? }` | Stream XML incrementally |
-| `get_approval` | `{ project_id? }` | Wait for user approval (may return "pending" — call again) |
-| `update_node_status` | `{ node_id, status, output?, project_id? }` | Update execution progress |
-| `plan_completed` | `{ project_id? }` | Mark plan done |
-| `plan_failed` | `{ error, project_id? }` | Mark plan failed |
-| `check_rerun` | `{ timeout_ms?, project_id? }` | Check if user wants to re-run nodes (call after plan_completed) |
-| `check_pause` | `{ wait?, project_id? }` | Check if user paused execution (call before each node) |
-| `get_resume_info` | `{ project_id? }` | Get state info for resuming a paused/failed plan |
-| `request_plan_update` | `{ operations, project_id? }` | Apply incremental updates to the plan (insert, delete, replace) |
-| `create_new_plan` | `{ project_id? }` | Signal you're creating a new unrelated plan (adds alongside existing) |
-| `get_node_info` | `{ node_id, project_id? }` | Get detailed information about a specific node |
-| `update_node_detail` | `{ node_id, updates, project_id? }` | Update a single node's details (title, description, etc.) |
-| `update_nodes_detail` | `{ updates[], project_id? }` | Batch update multiple nodes' details |
+| `get_approval` | `{ project_id?, workspace_path? }` | Wait for user approval (may return "pending" — call again) |
+| `update_node_status` | `{ node_id, status, output?, project_id?, workspace_path? }` | Update execution progress |
+| `plan_completed` | `{ project_id?, workspace_path? }` | Mark plan done |
+| `plan_failed` | `{ error, project_id?, workspace_path? }` | Mark plan failed |
+| `check_rerun` | `{ timeout_ms?, project_id?, workspace_path? }` | Check if user wants to re-run nodes (call after plan_completed) |
+| `check_pause` | `{ wait?, project_id?, workspace_path? }` | Check if user paused execution (call before each node) |
+| `get_resume_info` | `{ project_id?, workspace_path? }` | Get state info for resuming a paused/failed plan |
+| `request_plan_update` | `{ operations, project_id?, workspace_path? }` | Apply incremental updates to the plan (insert, delete, replace) |
+| `create_new_plan` | `{ project_id?, workspace_path? }` | Signal you're creating a new unrelated plan (adds alongside existing) |
+| `get_node_info` | `{ node_id, project_id?, workspace_path? }` | Get detailed information about a specific node |
+| `update_node_detail` | `{ node_id, updates, project_id?, workspace_path? }` | Update a single node's details (title, description, etc.) |
+| `update_nodes_detail` | `{ updates[], project_id?, workspace_path? }` | Batch update multiple nodes' details |
 
 ### Multi-Project Support
 
 Overture supports multiple projects running simultaneously. Each project gets its own tab in the UI.
 
-- **`workspace_path`**: Pass the absolute path to your project directory when calling `submit_plan`. This enables project isolation and history tracking.
+- **`workspace_path`**: Pass the absolute path to your project directory when calling ANY Overture tool. This enables:
+  - Project isolation (separate history per folder)
+  - Local `.overture.json` storage in your project
+  - Consistent project tracking across all operations
 - **`agent_type`**: Identify yourself (e.g., "cursor") so the UI shows the correct agent name.
 - **`project_id`** / **`expected_project_id`**: **CRITICAL** - These are returned in the response from `submit_plan`. **YOU MUST use this exact value** in ALL subsequent calls (`get_approval`, `update_node_status`, `plan_completed`, etc.). The frontend uses this ID to match your approval request.
 
@@ -141,8 +144,10 @@ Overture supports multiple projects running simultaneously. Each project gets it
 ```
 1. Call submit_plan({ plan_xml, workspace_path: "/path/to/project" })
 2. Response: { success: true, projectId: "84393059027d", expected_project_id: "84393059027d" }
-3. Call get_approval({ project_id: "84393059027d" })  ← MUST match!
-4. Call update_node_status({ node_id: "n1", status: "active", project_id: "84393059027d" })
+3. Call get_approval({ project_id: "84393059027d", workspace_path: "/path/to/project" })
+4. Call update_node_status({ node_id: "n1", status: "active", project_id: "84393059027d", workspace_path: "/path/to/project" })
+5. Call update_node_status({ node_id: "n1", status: "completed", output: "...", project_id: "84393059027d", workspace_path: "/path/to/project" })
+6. Call plan_completed({ project_id: "84393059027d", workspace_path: "/path/to/project" })
 ```
 
 If you don't pass `workspace_path`, Overture uses a default project which works fine for single-project scenarios.

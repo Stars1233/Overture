@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { WSMessage, WSClientMessage, ProjectContext, HistoryEntry } from '../types.js';
 import { planStore, multiProjectPlanStore } from '../store/plan-store.js';
 import { historyStorage } from '../storage/history-storage.js';
+import { projectStorageRegistry } from '../storage/project-storage.js';
 import { settingsStore } from '../store/settings-store.js';
 
 /**
@@ -219,7 +220,35 @@ class WebSocketManager {
         console.error('[Overture] History requested');
         let entries: HistoryEntry[];
 
-        if (message.projectId) {
+        // Use project-local storage if workspace path is provided
+        if (message.workspacePath && message.projectId) {
+          const projectStorage = projectStorageRegistry.getStorage(message.workspacePath, message.projectId);
+
+          // Check if write permission was denied - fall back to global storage
+          if (projectStorage.isWritePermissionDenied()) {
+            console.error('[Overture] Project storage permission denied, using global storage');
+            entries = await historyStorage.getEntriesByProject(message.projectId);
+          } else {
+            // Get entries from project-local storage
+            const projectEntries = await projectStorage.getHistoryEntries();
+
+            // Also get entries from global storage for this project (legacy data)
+            const globalEntries = await historyStorage.getEntriesByProject(message.projectId);
+
+            // Merge and deduplicate by plan ID (project entries take priority)
+            const entryMap = new Map<string, HistoryEntry>();
+            for (const entry of globalEntries) {
+              entryMap.set(entry.id, entry);
+            }
+            for (const entry of projectEntries) {
+              entryMap.set(entry.id, entry); // Override with project entries
+            }
+            entries = Array.from(entryMap.values());
+
+            // Sort by createdAt descending (most recent first)
+            entries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          }
+        } else if (message.projectId) {
           entries = await historyStorage.getEntriesByProject(message.projectId);
         } else {
           entries = await historyStorage.getAllEntries();
@@ -231,7 +260,26 @@ class WebSocketManager {
 
       case 'load_plan': {
         console.error(`[Overture] Loading plan from history: ${message.planId}`);
-        const state = await multiProjectPlanStore.loadFromHistory(message.planId);
+
+        let state: Awaited<ReturnType<typeof multiProjectPlanStore.loadFromHistory>> = null;
+
+        // Try project-local storage first if workspace path is provided
+        if (message.workspacePath && message.projectId) {
+          const projectStorage = projectStorageRegistry.getStorage(message.workspacePath, message.projectId);
+
+          if (!projectStorage.isWritePermissionDenied()) {
+            const persistedPlan = await projectStorage.getPlan(message.planId);
+            if (persistedPlan) {
+              // Load into multiProjectPlanStore
+              state = await multiProjectPlanStore.loadFromPersistedPlan(persistedPlan);
+            }
+          }
+        }
+
+        // Fall back to global history storage
+        if (!state) {
+          state = await multiProjectPlanStore.loadFromHistory(message.planId);
+        }
 
         if (state?.plan) {
           // Subscribe client to this project

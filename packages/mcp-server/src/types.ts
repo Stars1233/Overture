@@ -337,8 +337,8 @@ export type WSClientMessage =
   | { type: 'register_project'; projectContext: ProjectContext }
   | { type: 'subscribe_project'; projectId: string }
   | { type: 'unsubscribe_project'; projectId: string }
-  | { type: 'get_history'; projectId?: string }
-  | { type: 'load_plan'; planId: string }
+  | { type: 'get_history'; projectId?: string; workspacePath?: string }
+  | { type: 'load_plan'; planId: string; workspacePath?: string; projectId?: string }
   | { type: 'get_resume_info'; projectId?: string; planId?: string }
   | { type: 'save_plan'; projectId?: string }
   // Plan update events

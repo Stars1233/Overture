@@ -104,7 +104,7 @@ function HistoryItem({ entry, onLoad }: HistoryItemProps) {
 }
 
 interface HistoryPanelProps {
-  onLoadPlan?: (planId: string) => void;
+  onLoadPlan?: (planId: string, workspacePath?: string, projectId?: string) => void;
 }
 
 export function HistoryPanel({ onLoadPlan }: HistoryPanelProps) {
@@ -133,9 +133,10 @@ export function HistoryPanel({ onLoadPlan }: HistoryPanelProps) {
     return acc;
   }, {} as Record<string, HistoryEntry[]>);
 
-  const handleLoadPlan = (planId: string) => {
+  const handleLoadPlan = (entry: HistoryEntry) => {
     if (onLoadPlan) {
-      onLoadPlan(planId);
+      // Pass workspace path and project ID for project-local storage support
+      onLoadPlan(entry.id, entry.workspacePath, entry.projectId);
     }
   };
 
@@ -207,7 +208,7 @@ export function HistoryPanel({ onLoadPlan }: HistoryPanelProps) {
                           <HistoryItem
                             key={entry.id}
                             entry={entry}
-                            onLoad={() => handleLoadPlan(entry.id)}
+                            onLoad={() => handleLoadPlan(entry)}
                           />
                         ))}
                       </AnimatePresence>

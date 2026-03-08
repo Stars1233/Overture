@@ -859,6 +859,27 @@ class MultiProjectPlanStore {
   }
 
   /**
+   * Load a plan from a PersistedPlan object directly into the store
+   * Used when loading from project storage
+   */
+  async loadFromPersistedPlan(persisted: PersistedPlan): Promise<ProjectPlanState | null> {
+    const state: ProjectPlanState = {
+      projectId: persisted.plan.projectId,
+      workspacePath: persisted.plan.workspacePath,
+      plan: persisted.plan,
+      nodes: persisted.nodes,
+      edges: persisted.edges,
+      fieldValues: persisted.fieldValues,
+      selectedBranches: persisted.selectedBranches,
+      nodeConfigs: persisted.nodeConfigs
+    };
+
+    this.projects.set(state.projectId, state);
+    console.error(`[Overture] Loaded plan from PersistedPlan: ${persisted.plan.id}`);
+    return state;
+  }
+
+  /**
    * Load a plan from history into a project
    * Checks both project-local storage and global storage
    */

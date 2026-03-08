@@ -495,7 +495,18 @@ export function useWebSocket() {
         setConnected(true);
 
         // Request history on connect
-        ws.send(JSON.stringify({ type: 'get_history' }));
+        // Try to use active tab's workspace path if available
+        const multiState = multiProjectStore.getState();
+        const activeTab = multiState.tabs.find(t => t.projectId === multiState.activeTabId);
+        if (activeTab) {
+          ws.send(JSON.stringify({
+            type: 'get_history',
+            projectId: activeTab.projectId,
+            workspacePath: activeTab.workspacePath,
+          }));
+        } else {
+          ws.send(JSON.stringify({ type: 'get_history' }));
+        }
 
         // Sync settings on connect
         const settings = useSettingsStore.getState();
@@ -705,17 +716,20 @@ export function useWebSocket() {
     });
   }, [sendMessage]);
 
-  const getHistory = useCallback((projectId?: string) => {
+  const getHistory = useCallback((projectId?: string, workspacePath?: string) => {
     sendMessage({
       type: 'get_history',
       projectId,
+      workspacePath,
     });
   }, [sendMessage]);
 
-  const loadPlan = useCallback((planId: string) => {
+  const loadPlan = useCallback((planId: string, workspacePath?: string, projectId?: string) => {
     sendMessage({
       type: 'load_plan',
       planId,
+      workspacePath,
+      projectId,
     });
   }, [sendMessage]);
 
@@ -798,12 +812,24 @@ export function useWebSocket() {
   }, [connect]);
 
   // Auto-refresh history every 3 seconds
-  // Always request ALL history - UI will filter as needed
+  // Request history for the active project with workspace path for project-local storage
   useEffect(() => {
     const historyInterval = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        // Request ALL history (no projectId filter) - UI handles filtering
-        wsRef.current.send(JSON.stringify({ type: 'get_history' }));
+        const multiState = multiProjectStore.getState();
+        const activeTab = multiState.tabs.find(t => t.projectId === multiState.activeTabId);
+
+        // Send with workspace path if we have an active tab, otherwise get all history
+        if (activeTab) {
+          wsRef.current.send(JSON.stringify({
+            type: 'get_history',
+            projectId: activeTab.projectId,
+            workspacePath: activeTab.workspacePath,
+          }));
+        } else {
+          // Request ALL history (no projectId filter) - UI handles filtering
+          wsRef.current.send(JSON.stringify({ type: 'get_history' }));
+        }
       }
     }, HISTORY_POLL_INTERVAL);
 

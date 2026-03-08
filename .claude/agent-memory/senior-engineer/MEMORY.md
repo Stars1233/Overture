@@ -207,3 +207,31 @@ Users can assign specific AI models and providers to plans. The model/provider c
 ### UI Components
 - Model badge in PlanHeader (shows model name, clickable to open settings)
 - PlanSettingsModal with provider grid and model dropdown/custom input
+
+## Workspace Path Support (Added 2026-03-05)
+
+### Overview
+All MCP tools now accept an optional `workspace_path` parameter for project-local storage support.
+This allows plans to be stored in `.overture.json` files within each project folder.
+
+### Files Modified
+- `packages/mcp-server/src/index.ts` - Added `workspace_path` to all Zod schemas and tool inputSchemas
+- `packages/mcp-server/src/tools/handlers.ts` - Updated all handler signatures with `workspacePath?: string`
+- `packages/mcp-server/src/types.ts` - Added `workspacePath` to `get_history` and `load_plan` message types
+- `packages/mcp-server/src/websocket/ws-server.ts` - Use project storage when loading/saving with workspace path
+- `packages/mcp-server/src/store/plan-store.ts` - Added `loadFromPersistedPlan()` method
+- `packages/ui/src/hooks/useWebSocket.ts` - Updated `getHistory()` and `loadPlan()` to accept workspace path
+- `packages/ui/src/components/Panel/HistoryPanel.tsx` - Pass workspace path when loading plans
+
+### Pattern for Adding workspace_path to MCP Tools
+1. Add `workspace_path` to Zod schema in `index.ts`
+2. Add `workspace_path` to tool inputSchema JSON in `index.ts`
+3. Update handler call to pass `workspacePath` in `index.ts`
+4. Update handler function signature to accept `workspacePath?: string` in `handlers.ts`
+5. Include `workspacePath` in return object from handler
+
+### WebSocket History Flow with Workspace Path
+1. UI sends `get_history` with `projectId` and `workspacePath`
+2. Server uses `projectStorageRegistry.getStorage()` to get project storage
+3. Merges entries from project storage and global storage
+4. Returns deduplicated entries sorted by date
