@@ -1,13 +1,18 @@
+import { useState, useEffect, useCallback } from 'react';
 import { usePlanStore } from '@/stores/plan-store';
 import { useMultiProjectStore } from '@/stores/multi-project-store';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { Wifi, WifiOff, Zap, Pause, Play, History } from 'lucide-react';
+import { Wifi, WifiOff, Zap, Pause, Play, History, Settings, HelpCircle } from 'lucide-react';
 import { TabBar } from './TabBar';
+import { SettingsModal } from '@/components/Modals/SettingsModal';
+import { HelpModal } from '@/components/Modals/HelpModal';
 
 export function Header() {
   const { plan, isConnected, completedCount, totalCount } = usePlanStore();
   const { tabs, toggleHistoryPanel, isHistoryPanelOpen } = useMultiProjectStore();
   const { pauseExecution, resumeExecution } = useWebSocket();
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   const isExecuting = plan?.status === 'executing';
   const isPaused = plan?.status === 'paused';
@@ -17,6 +22,26 @@ export function Header() {
   const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
 
   const hasMultipleTabs = tabs.length > 1;
+
+  // Handle "?" keyboard shortcut to open help
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Only trigger if not typing in an input or textarea
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+      return;
+    }
+
+    // "?" key (Shift + /) or just "?" depending on keyboard
+    if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+      e.preventDefault();
+      setIsHelpOpen(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
 
   return (
     <div className="flex flex-col">
@@ -120,6 +145,28 @@ export function Header() {
             </button>
           )}
 
+          {/* Help button */}
+          <button
+            onClick={() => setIsHelpOpen(true)}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs
+                     text-text-muted hover:text-text-secondary hover:bg-surface-raised
+                     transition-colors"
+            title="Help & Documentation"
+          >
+            <HelpCircle className="w-4 h-4" />
+          </button>
+
+          {/* Settings button */}
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs
+                     text-text-muted hover:text-text-secondary hover:bg-surface-raised
+                     transition-colors"
+            title="Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+
           {/* Connection status */}
           <div className="flex items-center gap-1.5">
             {isConnected ? (
@@ -139,6 +186,12 @@ export function Header() {
 
       {/* Tab bar - only renders when there are multiple tabs */}
       <TabBar />
+
+      {/* Settings modal */}
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+
+      {/* Help modal */}
+      <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
     </div>
   );
 }

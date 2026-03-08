@@ -115,21 +115,27 @@ Use these tools via `use_mcp_tool` with server name `overture`:
 |------|-------|---------|
 | `submit_plan` | `{ plan_xml, workspace_path?, agent_type? }` | Submit complete XML plan |
 | `stream_plan_chunk` | `{ xml_chunk, workspace_path?, agent_type? }` | Stream XML incrementally |
-| `get_approval` | `{ project_id? }` | Wait for user approval (may return "pending" — call again) |
-| `update_node_status` | `{ node_id, status, output?, project_id? }` | Update execution progress |
-| `plan_completed` | `{ project_id? }` | Mark plan done |
-| `plan_failed` | `{ error, project_id? }` | Mark plan failed |
-| `check_rerun` | `{ timeout_ms?, project_id? }` | Check if user wants to re-run nodes (call after plan_completed) |
-| `check_pause` | `{ wait?, project_id? }` | Check if user paused execution (call before each node) |
-| `get_resume_info` | `{ project_id? }` | Get state info for resuming a paused/failed plan |
-| `request_plan_update` | `{ operations, project_id? }` | Apply incremental updates to the plan (insert, delete, replace) |
-| `create_new_plan` | `{ project_id? }` | Signal you're creating a new unrelated plan (adds alongside existing) |
+| `get_approval` | `{ project_id?, workspace_path? }` | Wait for user approval (may return "pending" — call again) |
+| `update_node_status` | `{ node_id, status, output?, project_id?, workspace_path? }` | Update execution progress |
+| `plan_completed` | `{ project_id?, workspace_path? }` | Mark plan done |
+| `plan_failed` | `{ error, project_id?, workspace_path? }` | Mark plan failed |
+| `check_rerun` | `{ timeout_ms?, project_id?, workspace_path? }` | Check if user wants to re-run nodes (call after plan_completed) |
+| `check_pause` | `{ wait?, project_id?, workspace_path? }` | Check if user paused execution (call before each node) |
+| `get_resume_info` | `{ project_id?, workspace_path? }` | Get state info for resuming a paused/failed plan |
+| `request_plan_update` | `{ operations, project_id?, workspace_path? }` | Apply incremental updates to the plan (insert, delete, replace) |
+| `create_new_plan` | `{ project_id?, workspace_path? }` | Signal you're creating a new unrelated plan (adds alongside existing) |
+| `get_node_info` | `{ node_id, project_id?, workspace_path? }` | Get detailed information about a specific node |
+| `update_node_detail` | `{ node_id, updates, project_id?, workspace_path? }` | Update a single node's details (title, description, etc.) |
+| `update_nodes_detail` | `{ updates[], project_id?, workspace_path? }` | Batch update multiple nodes' details |
 
 ### Multi-Project Support
 
 Overture supports multiple projects running simultaneously. Each project gets its own tab in the UI.
 
-- **`workspace_path`**: Pass the absolute path to your project directory when calling `submit_plan`. This enables project isolation and history tracking.
+- **`workspace_path`**: Pass the absolute path to your project directory when calling ANY Overture tool. This enables:
+  - Project isolation (separate history per folder)
+  - Local `.overture.json` storage in your project
+  - Consistent project tracking across all operations
 - **`agent_type`**: Identify yourself (e.g., "sixth") so the UI shows the correct agent name.
 - **`project_id`** / **`expected_project_id`**: **CRITICAL** - These are returned in the response from `submit_plan`. **YOU MUST use this exact value** in ALL subsequent calls (`get_approval`, `update_node_status`, `plan_completed`, etc.). The frontend uses this ID to match your approval request.
 
@@ -137,8 +143,10 @@ Overture supports multiple projects running simultaneously. Each project gets it
 ```
 1. Call submit_plan({ plan_xml, workspace_path: "/path/to/project" })
 2. Response: { success: true, projectId: "84393059027d", expected_project_id: "84393059027d" }
-3. Call get_approval({ project_id: "84393059027d" })  ← MUST match!
-4. Call update_node_status({ node_id: "n1", status: "active", project_id: "84393059027d" })
+3. Call get_approval({ project_id: "84393059027d", workspace_path: "/path/to/project" })
+4. Call update_node_status({ node_id: "n1", status: "active", project_id: "84393059027d", workspace_path: "/path/to/project" })
+5. Call update_node_status({ node_id: "n1", status: "completed", output: "...", project_id: "84393059027d", workspace_path: "/path/to/project" })
+6. Call plan_completed({ project_id: "84393059027d", workspace_path: "/path/to/project" })
 ```
 
 If you don't pass `workspace_path`, Overture uses a default project which works fine for single-project scenarios.
@@ -196,6 +204,121 @@ If the user asks for something completely unrelated to the current plan (e.g., "
 4. You call: get_approval({ project_id })
 5. Execute nodes as normal
 ```
+
+### Node Information and Updates
+
+These tools allow you to query and modify node details programmatically during execution.
+
+#### get_node_info
+
+Retrieve detailed information about a specific node, including all user-configured values.
+
+**Parameters:**
+- `node_id` (required): The ID of the node to query
+- `project_id` (optional): Project ID (uses current project if not specified)
+
+**Returns:**
+```json
+{
+  "success": true,
+  "node": {
+    "id": "n1",
+    "title": "Initialize Project",
+    "type": "task",
+    "status": "pending",
+    "description": "Set up the project structure",
+    "complexity": "low",
+    "expectedOutput": "package.json and project files created",
+    "risks": "None significant",
+    "fieldValues": { "project_name": "my-app" },
+    "attachments": [{ "path": "/path/to/spec.md", "name": "spec.md", "type": "document" }],
+    "mcpServers": [],
+    "metaInstructions": "Use TypeScript strict mode",
+    "isBranchPoint": false,
+    "branchTargetIds": [],
+    "selectedBranchId": null,
+    "branchSourceId": null,
+    "output": null
+  },
+  "projectId": "84393059027d"
+}
+```
+
+**When to use:**
+- When you need to check a node's current state before taking action
+- When resuming execution and you need full node context
+- When you need to verify what fieldValues or attachments are configured
+
+#### update_node_detail
+
+Update a single node's metadata during execution. The UI updates in real-time.
+
+**Parameters:**
+- `node_id` (required): The ID of the node to update
+- `updates` (required): Object containing fields to update
+  - `title` (optional): New title for the node
+  - `description` (optional): New description
+  - `complexity` (optional): "low" | "medium" | "high"
+  - `expectedOutput` (optional): Updated expected output
+  - `risks` (optional): Updated risks
+- `project_id` (optional): Project ID
+
+**Example:**
+```json
+update_node_detail({
+  "node_id": "n3",
+  "updates": {
+    "title": "Configure PostgreSQL Database",
+    "description": "Set up PostgreSQL with connection pooling based on user's database URL",
+    "complexity": "medium"
+  }
+})
+```
+
+**When to use:**
+- When you discover during execution that a node's description needs clarification
+- When the actual implementation differs from the original plan
+- When you want to add more detail to a node based on what you learned
+
+#### update_nodes_detail
+
+Batch update multiple nodes at once. More efficient than calling `update_node_detail` multiple times.
+
+**Parameters:**
+- `updates` (required): Array of update objects, each containing:
+  - `node_id` (required): The ID of the node to update
+  - `title` (optional): New title
+  - `description` (optional): New description
+  - `complexity` (optional): "low" | "medium" | "high"
+  - `expectedOutput` (optional): Updated expected output
+  - `risks` (optional): Updated risks
+- `project_id` (optional): Project ID
+
+**Example:**
+```json
+update_nodes_detail({
+  "updates": [
+    {
+      "node_id": "n3",
+      "title": "Updated: Configure Database",
+      "complexity": "high"
+    },
+    {
+      "node_id": "n4",
+      "description": "Now using Prisma ORM instead of raw SQL"
+    },
+    {
+      "node_id": "n5",
+      "risks": "API rate limiting may apply - added retry logic"
+    }
+  ]
+})
+```
+
+**When to use:**
+- When multiple nodes need updates based on discoveries during execution
+- When refining the plan after partial execution
+- When you need to update node details efficiently in bulk
 
 ---
 
@@ -351,8 +474,48 @@ Add `<pros>` and `<cons>` directly on branch option nodes to help users decide:
 | `select` | Choice from options | Database type, framework |
 | `boolean` | Yes/No toggle | Enable feature X? |
 | `number` | Numeric input | Port number, timeout |
+| `question` | User question with optional dropdown | Preference questions, requirements |
+| `color` | Color picker with hex input | Theme color, brand color |
 
 **Always add `setup_instructions`** for fields that require the user to obtain a value from an external source.
+
+### Question Field Examples
+
+```xml
+<!-- Question with dropdown options -->
+<dynamic_field
+  id="q1"
+  type="question"
+  name="preferred_database"
+  title="Which database do you prefer?"
+  description="Select your preferred database"
+  options="PostgreSQL,MySQL,MongoDB,SQLite"
+  required="true"
+/>
+
+<!-- Question with free-form text input (no options) -->
+<dynamic_field
+  id="q2"
+  type="question"
+  name="custom_requirement"
+  title="Any specific requirements?"
+  description="Describe your requirements"
+/>
+```
+
+### Color Field Example
+
+```xml
+<dynamic_field
+  id="c1"
+  type="color"
+  name="theme_color"
+  title="Theme Color"
+  description="Choose your brand color"
+  value="#3b82f6"
+  required="true"
+/>
+```
 
 ---
 

@@ -10,11 +10,11 @@
   "scripts": {
     "dev": "npm run dev:server & npm run dev:ui",
     "build": "npm run build:server && npm run build:ui",
-    "dev:server": "npm run dev --workspace=@overture/mcp-server",
+    "dev:server": "npm run dev --workspace=overture-mcp",
     "dev:ui": "npm run dev --workspace=@overture/ui",
-    "build:server": "npm run build --workspace=@overture/mcp-server",
+    "build:server": "npm run build --workspace=overture-mcp",
     "build:ui": "npm run build --workspace=@overture/ui",
-    "start": "npm run start --workspace=@overture/mcp-server",
+    "start": "npm run start --workspace=overture-mcp",
     "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist"
   },
   "keywords": [

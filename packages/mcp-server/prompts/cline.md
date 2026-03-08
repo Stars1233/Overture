@@ -223,7 +223,7 @@ If the user asks for something completely unrelated to the current plan (e.g., "
       <dynamic_field
         id="f1"
         name="variable_name"
-        type="string|secret|select|boolean|number"
+        type="string|secret|select|boolean|number|color"
         required="true|false"
         title="Human-readable Label"
         description="Help text explaining what this is for"
@@ -351,8 +351,35 @@ Add `<pros>` and `<cons>` directly on branch option nodes to help users decide:
 | `select` | Choice from options | Database type, framework |
 | `boolean` | Yes/No toggle | Enable feature X? |
 | `number` | Numeric input | Port number, timeout |
+| `question` | Ask user a question | User preferences, custom requirements |
+| `color` | Color picker (hex format) | Theme color, brand color |
 
 **Always add `setup_instructions`** for fields that require the user to obtain a value from an external source.
+
+### Question Field Type
+
+The `question` type is used to ask users questions during plan configuration:
+- If `options` attribute is provided: renders as a dropdown
+- If no `options`: renders as a text input for free-form answers
+
+```xml
+<!-- Question with dropdown options -->
+<dynamic_field
+  id="q1"
+  type="question"
+  name="preferred_database"
+  title="Which database do you prefer?"
+  options="PostgreSQL,MySQL,MongoDB,SQLite"
+/>
+
+<!-- Question with free-form text input -->
+<dynamic_field
+  id="q2"
+  type="question"
+  name="custom_requirement"
+  title="Any specific requirements?"
+/>
+```
 
 ---
 

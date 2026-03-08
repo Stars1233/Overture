@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan id="monaco-test-comprehensive">
+  <!-- Multi-language syntax highlighting test -->
+  <node id="syntax-test" type="task" description="Test Monaco syntax highlighting across multiple languages">
+    <field name="action" description="Test action">Test syntax highlighting</field>
+  </node>
+
+  <!-- TypeScript test -->
+  <node id="typescript-file" type="task" description="TypeScript file changes">
+    <field name="file" description="TypeScript component">src/components/TestComponent.tsx</field>
+  </node>
+
+  <!-- JavaScript test -->
+  <node id="javascript-file" type="task" description="JavaScript file changes">
+    <field name="file" description="JavaScript utility">utils/helper.js</field>
+  </node>
+
+  <!-- Python test -->
+  <node id="python-file" type="task" description="Python file changes">
+    <field name="file" description="Python script">scripts/analyzer.py</field>
+  </node>
+
+  <!-- JSON test -->
+  <node id="json-file" type="task" description="JSON config changes">
+    <field name="file" description="Package config">package.json</field>
+  </node>
+
+  <!-- CSS test -->
+  <node id="css-file" type="task" description="CSS stylesheet changes">
+    <field name="file" description="Styles">styles/app.css</field>
+  </node>
+
+  <!-- HTML test -->
+  <node id="html-file" type="task" description="HTML template changes">
+    <field name="file" description="Index page">public/index.html</field>
+  </node>
+
+  <!-- Markdown test -->
+  <node id="markdown-file" type="task" description="Markdown documentation">
+    <field name="file" description="README">README.md</field>
+  </node>
+
+  <!-- Dockerfile test -->
+  <node id="dockerfile-test" type="task" description="Dockerfile changes">
+    <field name="file" description="Docker config">Dockerfile</field>
+  </node>
+
+  <!-- YAML test -->
+  <node id="yaml-file" type="task" description="YAML config changes">
+    <field name="file" description="CI config">.github/workflows/test.yml</field>
+  </node>
+
+  <!-- Shell script test -->
+  <node id="shell-file" type="task" description="Shell script changes">
+    <field name="file" description="Build script">build.sh</field>
+  </node>
+
+  <!-- Large diff test -->
+  <node id="large-diff" type="task" description="Large file with many changes (300+ lines)">
+    <field name="file" description="Large module">src/large-module.ts</field>
+  </node>
+
+  <!-- Small diff test -->
+  <node id="small-diff" type="task" description="Small file with few changes (3 lines)">
+    <field name="file" description="Config">config.ts</field>
+  </node>
+
+  <!-- Files created test -->
+  <node id="create-files" type="task" description="Test files created display">
+    <field name="action" description="Create multiple new files">Create files</field>
+  </node>
+
+  <!-- Files deleted test -->
+  <node id="delete-files" type="task" description="Test files deleted display">
+    <field name="action" description="Delete old files">Delete files</field>
+  </node>
+
+  <!-- Edge case: diff with unusual formatting -->
+  <node id="edge-case-diff" type="task" description="Test diff normalization edge cases">
+    <field name="file" description="Oddly formatted file">weird-format.ts</field>
+  </node>
+
+  <!-- Combined test: all output types -->
+  <node id="combined-output" type="task" description="Test combined structured output">
+    <field name="action" description="Multiple output types">Combined output</field>
+  </node>
+
+  <!-- Edges -->
+  <edge from="syntax-test" to="typescript-file" />
+  <edge from="typescript-file" to="javascript-file" />
+  <edge from="javascript-file" to="python-file" />
+  <edge from="python-file" to="json-file" />
+  <edge from="json-file" to="css-file" />
+  <edge from="css-file" to="html-file" />
+  <edge from="html-file" to="markdown-file" />
+  <edge from="markdown-file" to="dockerfile-test" />
+  <edge from="dockerfile-test" to="yaml-file" />
+  <edge from="yaml-file" to="shell-file" />
+  <edge from="shell-file" to="large-diff" />
+  <edge from="large-diff" to="small-diff" />
+  <edge from="small-diff" to="create-files" />
+  <edge from="create-files" to="delete-files" />
+  <edge from="delete-files" to="edge-case-diff" />
+  <edge from="edge-case-diff" to="combined-output" />
+</plan>

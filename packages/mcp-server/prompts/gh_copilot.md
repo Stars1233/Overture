@@ -491,8 +491,46 @@ Add `<pros>` and `<cons>` directly on branch option nodes to help users decide:
 | `select` | Dropdown options | `name`, `title`, `options` (comma-separated) |
 | `boolean` | Toggle switch | `name`, `title` |
 | `number` | Numeric input | `name`, `title` |
+| `question` | Ask user a question (dropdown if options provided, text input otherwise) | `name`, `title`, optional `options` |
+| `color` | Color picker (hex format #RRGGBB) | `name`, `title`, optional `value` |
 
 **Always include `setup_instructions`** when the user needs to obtain a value from an external service.
+
+### Color Field Example
+
+```xml
+<dynamic_field
+  id="c1"
+  type="color"
+  name="theme_color"
+  title="Theme Color"
+  description="Primary color for the application theme"
+  value="#3b82f6"
+/>
+```
+
+### Question Field Examples
+
+```xml
+<!-- Question with dropdown options -->
+<dynamic_field
+  id="q1"
+  type="question"
+  name="preferred_database"
+  title="Which database do you prefer?"
+  description="Select your preferred database for this project"
+  options="PostgreSQL,MySQL,MongoDB,SQLite"
+/>
+
+<!-- Question with free-form text input -->
+<dynamic_field
+  id="q2"
+  type="question"
+  name="custom_requirement"
+  title="Any specific requirements?"
+  description="Describe any additional requirements for this feature"
+/>
+```
 
 ---
 

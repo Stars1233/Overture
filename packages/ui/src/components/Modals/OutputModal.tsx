@@ -1,9 +1,10 @@
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, FileCode, Package, Server, Search, Wrench, ExternalLink, AlertCircle, Info, AlertTriangle, Plus, Minus, FileText, Trash2 } from 'lucide-react';
-import { StructuredOutput } from '@/stores/plan-store';
+import { X, FileCode, Package, Server, Search, Wrench, ExternalLink, AlertCircle, Info, AlertTriangle, Plus, Minus, FileText, Trash2, Eye, Loader2 } from 'lucide-react';
+import { StructuredOutput, FileChange, FileCreated } from '@/stores/plan-store';
 import { clsx } from 'clsx';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { MonacoViewerModal, FileViewerMode } from './MonacoViewerModal';
 
 interface OutputModalProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface OutputModalProps {
   nodeTitle: string;
   output?: string;
   structuredOutput?: StructuredOutput;
+  workspacePath?: string;  // Workspace path for resolving relative file paths
 }
 
 // Expandable section component
@@ -89,13 +91,145 @@ function ExpandableSection({
   );
 }
 
+// File viewer state interface
+interface FileViewerState {
+  isOpen: boolean;
+  filePath: string;
+  content?: string;
+  diff?: string;
+  mode: FileViewerMode;
+  linesAdded?: number;
+  linesRemoved?: number;
+}
+
+/**
+ * Reads file content from the server
+ */
+async function readFileContent(filePath: string): Promise<{ content: string; lineCount: number } | null> {
+  try {
+    const response = await fetch('/api/read-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath }),
+    });
+    if (!response.ok) {
+      console.error('[OutputModal] Failed to read file:', filePath);
+      return null;
+    }
+    return response.json();
+  } catch (error) {
+    console.error('[OutputModal] Error reading file:', error);
+    return null;
+  }
+}
+
+/**
+ * Constructs full file path from workspace path and relative path
+ */
+function getFullPath(workspacePath: string | undefined, relativePath: string): string | null {
+  if (!workspacePath) return null;
+  // Handle both Unix and Windows paths
+  const separator = workspacePath.includes('\\') ? '\\' : '/';
+  // Remove leading slashes from relative path to avoid double slashes
+  const cleanRelativePath = relativePath.replace(/^[/\\]+/, '');
+  return `${workspacePath}${separator}${cleanRelativePath}`;
+}
+
 export function OutputModal({
   isOpen,
   onClose,
   nodeTitle,
   output,
   structuredOutput,
+  workspacePath,
 }: OutputModalProps) {
+  // File viewer modal state
+  const [fileViewer, setFileViewer] = useState<FileViewerState>({
+    isOpen: false,
+    filePath: '',
+    mode: 'created',
+  });
+
+  // State for loading indicator
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
+
+  // Handler for viewing changed files
+  const handleViewChangedFile = useCallback(async (file: FileChange) => {
+    // If diff is already present, use it directly
+    if (file.diff) {
+      setFileViewer({
+        isOpen: true,
+        filePath: file.path,
+        diff: file.diff,
+        mode: 'changed',
+        linesAdded: file.linesAdded,
+        linesRemoved: file.linesRemoved,
+      });
+      return;
+    }
+
+    // Otherwise, try to read the current file content from disk
+    const fullPath = getFullPath(workspacePath, file.path);
+    if (!fullPath) {
+      console.warn('[OutputModal] Cannot read file: no workspace path available');
+      return;
+    }
+
+    setIsLoadingFile(true);
+    const result = await readFileContent(fullPath);
+    setIsLoadingFile(false);
+
+    if (result) {
+      setFileViewer({
+        isOpen: true,
+        filePath: file.path,
+        content: result.content,
+        mode: 'created', // Show as full content since we don't have diff
+        linesAdded: file.linesAdded,
+        linesRemoved: file.linesRemoved,
+      });
+    }
+  }, [workspacePath]);
+
+  // Handler for viewing created files
+  const handleViewCreatedFile = useCallback(async (file: FileCreated) => {
+    // If content is already present, use it directly
+    if (file.content) {
+      setFileViewer({
+        isOpen: true,
+        filePath: file.path,
+        content: file.content,
+        mode: 'created',
+      });
+      return;
+    }
+
+    // Otherwise, try to read the file content from disk
+    const fullPath = getFullPath(workspacePath, file.path);
+    if (!fullPath) {
+      console.warn('[OutputModal] Cannot read file: no workspace path available');
+      return;
+    }
+
+    setIsLoadingFile(true);
+    const result = await readFileContent(fullPath);
+    setIsLoadingFile(false);
+
+    if (result) {
+      setFileViewer({
+        isOpen: true,
+        filePath: file.path,
+        content: result.content,
+        mode: 'created',
+      });
+    }
+  }, [workspacePath]);
+
+  // Close file viewer
+  const handleCloseViewer = useCallback(() => {
+    setFileViewer((prev) => ({ ...prev, isOpen: false }));
+  }, []);
+
   const hasStructuredOutput = structuredOutput && Object.keys(structuredOutput).filter(k => k !== 'raw').length > 0;
 
   return createPortal(
@@ -202,6 +336,18 @@ export function OutputModal({
                                       {file.linesRemoved}
                                     </span>
                                   )}
+                                  <button
+                                    onClick={() => handleViewChangedFile(file)}
+                                    disabled={isLoadingFile}
+                                    className="p-1 rounded hover:bg-surface transition-colors text-text-muted hover:text-accent-blue disabled:opacity-50"
+                                    title={file.diff ? "View diff in editor" : (workspacePath ? "View current file" : "No workspace path available")}
+                                  >
+                                    {isLoadingFile ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Eye className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
                                 </div>
                               </div>
                               {file.diff && (
@@ -239,11 +385,25 @@ export function OutputModal({
                       >
                         <div className="space-y-1">
                           {structuredOutput.filesCreated.map((file, i) => (
-                            <div key={i} className="flex items-center justify-between py-1.5 px-2 rounded bg-surface-raised">
+                            <div key={i} className="flex items-center justify-between py-1.5 px-2 rounded bg-surface-raised hover:bg-surface transition-colors">
                               <code className="text-xs text-text-primary font-mono">{file.path}</code>
-                              {file.lines !== undefined && (
-                                <span className="text-xs text-text-muted">{file.lines} lines</span>
-                              )}
+                              <div className="flex items-center gap-2">
+                                {file.lines !== undefined && (
+                                  <span className="text-xs text-text-muted">{file.lines} lines</span>
+                                )}
+                                <button
+                                  onClick={() => handleViewCreatedFile(file)}
+                                  disabled={isLoadingFile}
+                                  className="p-1 rounded hover:bg-surface-raised transition-colors text-text-muted hover:text-accent-green disabled:opacity-50"
+                                  title={file.content ? "View file content" : (workspacePath ? "Read file from disk" : "No workspace path available")}
+                                >
+                                  {isLoadingFile ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Eye className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -418,6 +578,18 @@ export function OutputModal({
             </div>
           </motion.div>
           </div>
+
+          {/* Monaco File Viewer Modal */}
+          <MonacoViewerModal
+            isOpen={fileViewer.isOpen}
+            onClose={handleCloseViewer}
+            filePath={fileViewer.filePath}
+            content={fileViewer.content}
+            diff={fileViewer.diff}
+            mode={fileViewer.mode}
+            linesAdded={fileViewer.linesAdded}
+            linesRemoved={fileViewer.linesRemoved}
+          />
         </>
       )}
     </AnimatePresence>,

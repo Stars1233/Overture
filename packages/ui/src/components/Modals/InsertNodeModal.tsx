@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, Trash2, FileText, ChevronDown, ChevronUp, FolderOpen } from 'lucide-react';
 import { usePlanStore, PlanNode, PlanEdge, FieldType } from '@/stores/plan-store';
+import { useMultiProjectStore } from '@/stores/multi-project-store';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
 interface NewFieldInput {
@@ -48,8 +49,12 @@ const fileTypes: { value: NewFileInput['type']; label: string }[] = [
 ];
 
 export function InsertNodeModal() {
-  const { pendingInsert, setPendingInsert, nodes, edges } = usePlanStore();
+  const { pendingInsert, setPendingInsert, pendingInsertBefore, setPendingInsertBefore, nodes, edges } = usePlanStore();
   const { insertNodes } = useWebSocket();
+
+  // Get the active projectId from multi-project store
+  const activeTab = useMultiProjectStore(state => state.tabs.find(t => t.isActive));
+  const projectId = activeTab?.projectId;
 
   const createEmptyNode = (): NewNodeInput => ({
     id: `new_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -62,16 +67,31 @@ export function InsertNodeModal() {
 
   const [newNodes, setNewNodes] = useState<NewNodeInput[]>([createEmptyNode()]);
 
-  const isOpen = pendingInsert !== null;
+  // Modal opens for either pendingInsert (insert after) or pendingInsertBefore (insert before first node)
+  const isInsertAfter = pendingInsert !== null;
+  const isInsertBefore = pendingInsertBefore !== null;
+  const isOpen = isInsertAfter || isInsertBefore;
 
-  const sourceNode = nodes.find(n => n.id === pendingInsert?.afterNodeId);
-  const targetEdge = edges.find(e => e.from === pendingInsert?.afterNodeId);
-  const targetNode = targetEdge ? nodes.find(n => n.id === targetEdge.to) : null;
+  // Compute source and target nodes based on insertion mode
+  let sourceNode: PlanNode | undefined;
+  let targetNode: PlanNode | undefined;
+
+  if (isInsertAfter && pendingInsert) {
+    // Insert After: source is the afterNode, target is what afterNode currently points to
+    sourceNode = nodes.find(n => n.id === pendingInsert.afterNodeId);
+    const targetEdge = edges.find(e => e.from === pendingInsert.afterNodeId);
+    targetNode = targetEdge ? nodes.find(n => n.id === targetEdge.to) : undefined;
+  } else if (isInsertBefore && pendingInsertBefore) {
+    // Insert Before (first node): source is null/undefined (start), target is the beforeNode
+    sourceNode = undefined;
+    targetNode = nodes.find(n => n.id === pendingInsertBefore.beforeNodeId);
+  }
 
   const handleClose = useCallback(() => {
     setPendingInsert(null);
+    setPendingInsertBefore(null);
     setNewNodes([createEmptyNode()]);
-  }, [setPendingInsert]);
+  }, [setPendingInsert, setPendingInsertBefore]);
 
   const handleAddNode = useCallback(() => {
     setNewNodes(prev => [...prev, createEmptyNode()]);
@@ -212,7 +232,9 @@ export function InsertNodeModal() {
   }, [updateFile]);
 
   const handleInsert = useCallback(() => {
-    if (!pendingInsert || newNodes.length === 0) return;
+    // Check we have either insert after or insert before mode active
+    if (!isInsertAfter && !isInsertBefore) return;
+    if (newNodes.length === 0) return;
 
     const validNodes = newNodes.filter(n => n.title.trim());
     if (validNodes.length === 0) return;
@@ -241,33 +263,34 @@ export function InsertNodeModal() {
       })),
     }));
 
-    const newEdges: PlanEdge[] = [];
-
-    newEdges.push({
-      id: `edge_${pendingInsert.afterNodeId}_${planNodes[0].id}`,
-      from: pendingInsert.afterNodeId,
-      to: planNodes[0].id,
-    });
-
+    // Build edges only between the new nodes
+    // The server will handle connecting to existing nodes (afterNode or beforeNode)
+    const internalEdges: PlanEdge[] = [];
     for (let i = 0; i < planNodes.length - 1; i++) {
-      newEdges.push({
+      internalEdges.push({
         id: `edge_${planNodes[i].id}_${planNodes[i + 1].id}`,
         from: planNodes[i].id,
         to: planNodes[i + 1].id,
       });
     }
 
-    if (targetEdge) {
-      newEdges.push({
-        id: `edge_${planNodes[planNodes.length - 1].id}_${targetEdge.to}`,
-        from: planNodes[planNodes.length - 1].id,
-        to: targetEdge.to,
-      });
+    if (isInsertAfter && pendingInsert) {
+      // Insert AFTER mode: add edge from afterNode to first new node
+      // Server will remove old edge from afterNode and add edge from last new node to original target
+      const edgeFromAfter: PlanEdge = {
+        id: `edge_${pendingInsert.afterNodeId}_${planNodes[0].id}`,
+        from: pendingInsert.afterNodeId,
+        to: planNodes[0].id,
+      };
+      insertNodes(planNodes, [edgeFromAfter, ...internalEdges], { afterNodeId: pendingInsert.afterNodeId, projectId });
+    } else if (isInsertBefore && pendingInsertBefore) {
+      // Insert BEFORE mode: server will handle all edge connections
+      // We only provide the internal edges between new nodes
+      insertNodes(planNodes, internalEdges, { beforeNodeId: pendingInsertBefore.beforeNodeId, projectId });
     }
 
-    insertNodes(pendingInsert.afterNodeId, planNodes, newEdges);
     handleClose();
-  }, [pendingInsert, newNodes, targetEdge, insertNodes, handleClose]);
+  }, [isInsertAfter, isInsertBefore, pendingInsert, pendingInsertBefore, newNodes, insertNodes, handleClose]);
 
   const isValid = newNodes.some(n => n.title.trim());
 
@@ -302,16 +325,33 @@ export function InsertNodeModal() {
             {/* Context info */}
             <div className="px-4 py-3 bg-surface-raised/50 border-b border-border shrink-0">
               <p className="text-sm text-text-secondary">
-                Insert {newNodes.length === 1 ? 'a node' : `${newNodes.length} nodes`} between:
+                {isInsertBefore
+                  ? `Insert ${newNodes.length === 1 ? 'a node' : `${newNodes.length} nodes`} before:`
+                  : `Insert ${newNodes.length === 1 ? 'a node' : `${newNodes.length} nodes`} between:`
+                }
               </p>
               <div className="flex items-center gap-2 mt-2 text-xs">
-                <span className="px-2 py-1 bg-accent-blue/10 text-accent-blue rounded-md font-medium">
-                  {sourceNode?.title || 'Unknown'}
-                </span>
-                <span className="text-text-muted">→</span>
-                <span className="px-2 py-1 bg-accent-purple/10 text-accent-purple rounded-md font-medium">
-                  {targetNode?.title || 'End'}
-                </span>
+                {isInsertBefore ? (
+                  <>
+                    <span className="px-2 py-1 bg-accent-green/10 text-accent-green rounded-md font-medium">
+                      Start
+                    </span>
+                    <span className="text-text-muted">→</span>
+                    <span className="px-2 py-1 bg-accent-purple/10 text-accent-purple rounded-md font-medium">
+                      {targetNode?.title || 'Unknown'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="px-2 py-1 bg-accent-blue/10 text-accent-blue rounded-md font-medium">
+                      {sourceNode?.title || 'Unknown'}
+                    </span>
+                    <span className="text-text-muted">→</span>
+                    <span className="px-2 py-1 bg-accent-purple/10 text-accent-purple rounded-md font-medium">
+                      {targetNode?.title || 'End'}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
 

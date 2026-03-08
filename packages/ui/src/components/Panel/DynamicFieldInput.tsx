@@ -104,6 +104,54 @@ export function DynamicFieldInput({ field, onChange }: DynamicFieldInputProps) {
           />
         );
 
+      case 'question':
+        // Render dropdown if options are provided, otherwise render text input
+        if (field.options) {
+          const questionOptions = field.options.split(',').map((o) => o.trim());
+          return (
+            <select
+              value={field.value || ''}
+              onChange={(e) => onChange(e.target.value)}
+              className={clsx(baseInputClass, 'cursor-pointer')}
+            >
+              <option value="">Select an answer</option>
+              {questionOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          );
+        }
+        return (
+          <input
+            type="text"
+            value={field.value || ''}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={`Enter your answer`}
+            className={baseInputClass}
+          />
+        );
+
+      case 'color':
+        return (
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={field.value || '#000000'}
+              onChange={(e) => onChange(e.target.value)}
+              className="w-10 h-10 rounded cursor-pointer border border-border bg-transparent p-0.5"
+            />
+            <input
+              type="text"
+              value={field.value || '#000000'}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder="#000000"
+              className={clsx(baseInputClass, 'font-mono flex-1')}
+            />
+          </div>
+        );
+
       default:
         return (
           <input

@@ -65,6 +65,8 @@ export class StreamingXMLParser {
             agent: (tag.attributes.agent as string) || 'unknown',
             createdAt: new Date().toISOString(),
             status: 'streaming',
+            model: tag.attributes.model as string | undefined,
+            provider: tag.attributes.provider as string | undefined,
           };
           this.callback({ type: 'plan', plan: this.state.plan });
           break;

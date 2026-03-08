@@ -23,6 +23,9 @@ import {
   handleRequestPlanUpdate,
   handleCreateNewPlan,
   handleGetUsageInstructions,
+  handleGetNodeInfo,
+  handleUpdateNodeDetail,
+  handleUpdateNodesDetail,
 } from './tools/handlers.js';
 import { NodeStatus } from './types.js';
 
@@ -40,6 +43,7 @@ const SubmitPlanSchema = z.object({
 
 const GetApprovalSchema = z.object({
   project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory. Used for project-local storage.'),
 });
 
 const UpdateNodeStatusSchema = z.object({
@@ -49,29 +53,35 @@ const UpdateNodeStatusSchema = z.object({
     .describe('The new status of the node'),
   output: z.string().optional().describe('Optional output/result from the node execution'),
   project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory. Used for project-local storage.'),
 });
 
 const PlanCompletedSchema = z.object({
   project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory. Used for project-local storage.'),
 });
 
 const PlanFailedSchema = z.object({
   error: z.string().describe('The error message'),
   project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory. Used for project-local storage.'),
 });
 
 const CheckRerunSchema = z.object({
   timeout_ms: z.number().optional().describe('How long to wait for a rerun request (default 5000ms)'),
   project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory. Used for project-local storage.'),
 });
 
 const CheckPauseSchema = z.object({
   wait: z.boolean().optional().describe('If true, block until execution is resumed. If false, return immediately.'),
   project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory. Used for project-local storage.'),
 });
 
 const GetResumeInfoSchema = z.object({
   project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory. Used for project-local storage.'),
 });
 
 // Schema for node data used in operations
@@ -119,14 +129,48 @@ const PlanOperationSchema = z.discriminatedUnion('op', [
 const RequestPlanUpdateSchema = z.object({
   operations: z.array(PlanOperationSchema).describe('Array of operations to apply to the plan (insert_after, insert_before, delete, replace)'),
   project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory. Used for project-local storage.'),
 });
 
 const CreateNewPlanSchema = z.object({
   project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory. Used for project-local storage.'),
 });
 
 const GetUsageInstructionsSchema = z.object({
   agent_type: z.string().describe('The type of agent requesting instructions (claude-code, cline, cursor, sixth, gh_copilot)'),
+});
+
+const GetNodeInfoSchema = z.object({
+  node_id: z.string().describe('The ID of the node to get info for'),
+  project_id: z.string().optional().describe('Project ID (optional, uses current if not provided)'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory. Used for project-local storage.'),
+});
+
+const UpdateNodeDetailSchema = z.object({
+  node_id: z.string().describe('The ID of the node to update'),
+  updates: z.object({
+    title: z.string().optional().describe('New title for the node'),
+    description: z.string().optional().describe('New description for the node'),
+    complexity: z.enum(['low', 'medium', 'high']).optional().describe('Task complexity level'),
+    expectedOutput: z.string().optional().describe('Expected output description'),
+    risks: z.string().optional().describe('Potential risks'),
+  }).describe('Partial updates to apply to the node'),
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory. Used for project-local storage.'),
+});
+
+const UpdateNodesDetailSchema = z.object({
+  updates: z.array(z.object({
+    node_id: z.string().describe('The ID of the node to update'),
+    title: z.string().optional().describe('New title for the node'),
+    description: z.string().optional().describe('New description for the node'),
+    complexity: z.enum(['low', 'medium', 'high']).optional().describe('Task complexity level'),
+    expectedOutput: z.string().optional().describe('Expected output description'),
+    risks: z.string().optional().describe('Potential risks'),
+  })).describe('Array of node updates to apply'),
+  project_id: z.string().optional().describe('Project ID (optional, uses current project if not specified)'),
+  workspace_path: z.string().optional().describe('Absolute path to the workspace/project directory. Used for project-local storage.'),
 });
 
 // Tool definitions
@@ -165,6 +209,10 @@ const TOOLS = [
           type: 'string',
           description: 'Project ID (optional, uses current project if not specified)',
         },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used for project-local storage.',
+        },
       },
       required: [],
     },
@@ -193,6 +241,10 @@ const TOOLS = [
           type: 'string',
           description: 'Project ID (optional, uses current project if not specified)',
         },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used for project-local storage.',
+        },
       },
       required: ['node_id', 'status'],
     },
@@ -206,6 +258,10 @@ const TOOLS = [
         project_id: {
           type: 'string',
           description: 'Project ID (optional, uses current project if not specified)',
+        },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used for project-local storage.',
         },
       },
       required: [],
@@ -225,6 +281,10 @@ const TOOLS = [
           type: 'string',
           description: 'Project ID (optional, uses current project if not specified)',
         },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used for project-local storage.',
+        },
       },
       required: ['error'],
     },
@@ -242,6 +302,10 @@ const TOOLS = [
         project_id: {
           type: 'string',
           description: 'Project ID (optional, uses current project if not specified)',
+        },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used for project-local storage.',
         },
       },
       required: [],
@@ -261,6 +325,10 @@ const TOOLS = [
           type: 'string',
           description: 'Project ID (optional, uses current project if not specified)',
         },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used for project-local storage.',
+        },
       },
       required: [],
     },
@@ -274,6 +342,10 @@ const TOOLS = [
         project_id: {
           type: 'string',
           description: 'Project ID (optional, uses current project if not specified)',
+        },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used for project-local storage.',
         },
       },
       required: [],
@@ -369,6 +441,10 @@ const TOOLS = [
           type: 'string',
           description: 'Project ID (optional, uses current project if not specified)',
         },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used for project-local storage.',
+        },
       },
       required: ['operations'],
     },
@@ -382,6 +458,10 @@ const TOOLS = [
         project_id: {
           type: 'string',
           description: 'Project ID (optional, uses current project if not specified)',
+        },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used for project-local storage.',
         },
       },
       required: [],
@@ -399,6 +479,130 @@ const TOOLS = [
         },
       },
       required: ['agent_type'],
+    },
+  },
+  {
+    name: 'get_node_info',
+    description: 'Get detailed information about a specific node in the plan. Returns the node\'s title, type, status, description, field values, attachments, MCP servers, and branch information.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        node_id: {
+          type: 'string',
+          description: 'The ID of the node to get info for',
+        },
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used for project-local storage.',
+        },
+      },
+      required: ['node_id'],
+    },
+  },
+  {
+    name: 'update_node_detail',
+    description: 'Update the details of a specific node in the plan. Use this to modify the title, description, complexity, expected output, or risks of a node. The UI will update in real-time.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        node_id: {
+          type: 'string',
+          description: 'The ID of the node to update',
+        },
+        updates: {
+          type: 'object',
+          description: 'Partial updates to apply to the node',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'New title for the node',
+            },
+            description: {
+              type: 'string',
+              description: 'New description for the node',
+            },
+            complexity: {
+              type: 'string',
+              enum: ['low', 'medium', 'high'],
+              description: 'Task complexity level',
+            },
+            expectedOutput: {
+              type: 'string',
+              description: 'Expected output description',
+            },
+            risks: {
+              type: 'string',
+              description: 'Potential risks',
+            },
+          },
+        },
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used for project-local storage.',
+        },
+      },
+      required: ['node_id', 'updates'],
+    },
+  },
+  {
+    name: 'update_nodes_detail',
+    description: 'Update details for multiple nodes at once (batch operation). Use this to efficiently modify title, description, complexity, expected output, or risks for multiple nodes in a single call. More efficient than calling update_node_detail multiple times.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        updates: {
+          type: 'array',
+          description: 'Array of node updates to apply',
+          items: {
+            type: 'object',
+            properties: {
+              node_id: {
+                type: 'string',
+                description: 'The ID of the node to update',
+              },
+              title: {
+                type: 'string',
+                description: 'New title for the node',
+              },
+              description: {
+                type: 'string',
+                description: 'New description for the node',
+              },
+              complexity: {
+                type: 'string',
+                enum: ['low', 'medium', 'high'],
+                description: 'Task complexity level',
+              },
+              expectedOutput: {
+                type: 'string',
+                description: 'Expected output description',
+              },
+              risks: {
+                type: 'string',
+                description: 'Potential risks',
+              },
+            },
+            required: ['node_id'],
+          },
+        },
+        project_id: {
+          type: 'string',
+          description: 'Project ID (optional, uses current project if not specified)',
+        },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the workspace/project directory. Used for project-local storage.',
+        },
+      },
+      required: ['updates'],
     },
   },
 ];
@@ -459,7 +663,7 @@ async function main() {
 
         case 'get_approval': {
           const parsed = GetApprovalSchema.parse(args);
-          const result = await handleGetApproval(parsed.project_id);
+          const result = await handleGetApproval(parsed.project_id, parsed.workspace_path);
           return {
             content: [
               {
@@ -476,7 +680,8 @@ async function main() {
             parsed.node_id,
             parsed.status as NodeStatus,
             parsed.output,
-            parsed.project_id
+            parsed.project_id,
+            parsed.workspace_path
           );
           return {
             content: [
@@ -490,7 +695,7 @@ async function main() {
 
         case 'plan_completed': {
           const parsed = PlanCompletedSchema.parse(args);
-          const result = handlePlanCompleted(parsed.project_id);
+          const result = handlePlanCompleted(parsed.project_id, parsed.workspace_path);
           return {
             content: [
               {
@@ -503,7 +708,7 @@ async function main() {
 
         case 'plan_failed': {
           const parsed = PlanFailedSchema.parse(args);
-          const result = handlePlanFailed(parsed.error, parsed.project_id);
+          const result = handlePlanFailed(parsed.error, parsed.project_id, parsed.workspace_path);
           return {
             content: [
               {
@@ -516,7 +721,7 @@ async function main() {
 
         case 'check_rerun': {
           const parsed = CheckRerunSchema.parse(args);
-          const result = await handleCheckRerun(parsed.timeout_ms || 5000, parsed.project_id);
+          const result = await handleCheckRerun(parsed.timeout_ms || 5000, parsed.project_id, parsed.workspace_path);
           return {
             content: [
               {
@@ -529,7 +734,7 @@ async function main() {
 
         case 'check_pause': {
           const parsed = CheckPauseSchema.parse(args);
-          const result = await handleCheckPause(parsed.wait || false, parsed.project_id);
+          const result = await handleCheckPause(parsed.wait || false, parsed.project_id, parsed.workspace_path);
           return {
             content: [
               {
@@ -542,7 +747,7 @@ async function main() {
 
         case 'get_resume_info': {
           const parsed = GetResumeInfoSchema.parse(args);
-          const result = handleGetResumeInfo(parsed.project_id);
+          const result = handleGetResumeInfo(parsed.project_id, parsed.workspace_path);
           return {
             content: [
               {
@@ -555,7 +760,7 @@ async function main() {
 
         case 'request_plan_update': {
           const parsed = RequestPlanUpdateSchema.parse(args);
-          const result = handleRequestPlanUpdate(parsed.operations, parsed.project_id);
+          const result = handleRequestPlanUpdate(parsed.operations, parsed.project_id, parsed.workspace_path);
           return {
             content: [
               {
@@ -568,7 +773,7 @@ async function main() {
 
         case 'create_new_plan': {
           const parsed = CreateNewPlanSchema.parse(args);
-          const result = handleCreateNewPlan(parsed.project_id);
+          const result = handleCreateNewPlan(parsed.project_id, parsed.workspace_path);
           return {
             content: [
               {
@@ -582,6 +787,54 @@ async function main() {
         case 'get_usage_instructions': {
           const parsed = GetUsageInstructionsSchema.parse(args);
           const result = await handleGetUsageInstructions(parsed.agent_type);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          };
+        }
+
+        case 'get_node_info': {
+          const parsed = GetNodeInfoSchema.parse(args);
+          const result = handleGetNodeInfo(parsed.node_id, parsed.project_id, parsed.workspace_path);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          };
+        }
+
+        case 'update_node_detail': {
+          const parsed = UpdateNodeDetailSchema.parse(args);
+          const result = handleUpdateNodeDetail(
+            parsed.node_id,
+            parsed.updates,
+            parsed.project_id,
+            parsed.workspace_path
+          );
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result),
+              },
+            ],
+          };
+        }
+
+        case 'update_nodes_detail': {
+          const parsed = UpdateNodesDetailSchema.parse(args);
+          const result = handleUpdateNodesDetail(
+            parsed.updates,
+            parsed.project_id,
+            parsed.workspace_path
+          );
           return {
             content: [
               {

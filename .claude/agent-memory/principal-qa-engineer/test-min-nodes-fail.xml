@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan title="Test Plan - Should Fail Min Nodes Validation" agent="test-agent">
+  <node id="n1" type="task">
+    <title>Task 1</title>
+    <description>This is task 1 of a 2-node plan</description>
+  </node>
+
+  <node id="n2" type="task">
+    <title>Task 2</title>
+    <description>This is task 2 of a 2-node plan</description>
+  </node>
+
+  <edge id="e1" from="n1" to="n2" />
+</plan>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan title="Test Plan - Should Pass Min Nodes Validation" agent="test-agent">
+  <node id="n1" type="task">
+    <title>Task 1</title>
+    <description>This is task 1 of a 5-node plan</description>
+  </node>
+
+  <node id="n2" type="task">
+    <title>Task 2</title>
+    <description>This is task 2 of a 5-node plan</description>
+  </node>
+
+  <node id="n3" type="task">
+    <title>Task 3</title>
+    <description>This is task 3 of a 5-node plan</description>
+  </node>
+
+  <node id="n4" type="task">
+    <title>Task 4</title>
+    <description>This is task 4 of a 5-node plan</description>
+  </node>
+
+  <node id="n5" type="task">
+    <title>Task 5</title>
+    <description>This is task 5 of a 5-node plan</description>
+  </node>
+
+  <edge id="e1" from="n1" to="n2" />
+  <edge id="e2" from="n2" to="n3" />
+  <edge id="e3" from="n3" to="n4" />
+  <edge id="e4" from="n4" to="n5" />
+</plan>

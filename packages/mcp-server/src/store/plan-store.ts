@@ -11,9 +11,11 @@ import {
   PersistedPlan,
   ResumePlanInfo,
   PlanDiff,
-  StructuredOutput
+  StructuredOutput,
+  HistoryEntry
 } from '../types.js';
 import { historyStorage } from '../storage/history-storage.js';
+import { projectStorageRegistry, ProjectStorage } from '../storage/project-storage.js';
 import { calculatePlanDiff } from '../utils/plan-diff.js';
 import path from 'path';
 
@@ -57,6 +59,27 @@ class MultiProjectPlanStore {
   }
 
   /**
+   * Get project storage for a project, or null if it should use global storage
+   * Uses project-local .overture.json if workspace path is available
+   */
+  private getProjectStorage(projectId: string): ProjectStorage | null {
+    const state = this.projects.get(projectId);
+    if (!state || !state.workspacePath || state.workspacePath === process.cwd()) {
+      // No workspace path or default project - use global storage
+      return null;
+    }
+
+    const storage = projectStorageRegistry.getStorage(state.workspacePath, projectId);
+
+    // If write permission was denied, fall back to global storage
+    if (storage.isWritePermissionDenied()) {
+      return null;
+    }
+
+    return storage;
+  }
+
+  /**
    * Start auto-save interval to persist all active projects every 3 seconds
    */
   private startAutoSave(): void {
@@ -75,10 +98,19 @@ class MultiProjectPlanStore {
               selectedBranches: state.selectedBranches,
               nodeConfigs: state.nodeConfigs
             };
-            await historyStorage.savePlan(persisted);
-            // Force immediate write to disk (bypass debounce)
-            await historyStorage.saveNow();
-            console.error(`[Overture] Auto-saved project ${projectId} (plan: ${state.plan!.id})`);
+
+            // Try project-local storage first, fall back to global
+            const projectStorage = this.getProjectStorage(projectId);
+            if (projectStorage) {
+              await projectStorage.addPlanToHistory(persisted);
+              await projectStorage.saveNow();
+              console.error(`[Overture] Auto-saved project ${projectId} to project storage (plan: ${state.plan!.id})`);
+            } else {
+              // Fall back to global storage
+              await historyStorage.savePlan(persisted);
+              await historyStorage.saveNow();
+              console.error(`[Overture] Auto-saved project ${projectId} to global storage (plan: ${state.plan!.id})`);
+            }
           } catch (error) {
             console.error(`[Overture] Auto-save failed for project ${projectId}:`, error);
           }
@@ -259,6 +291,22 @@ class MultiProjectPlanStore {
     }
   }
 
+  updatePlanSettings(projectId: string, planId: string, settings: { model?: string; provider?: string }): boolean {
+    const state = this.projects.get(projectId);
+    if (!state?.plan || state.plan.id !== planId) return false;
+
+    if (settings.model !== undefined) {
+      state.plan.model = settings.model || undefined;
+    }
+    if (settings.provider !== undefined) {
+      state.plan.provider = settings.provider || undefined;
+    }
+
+    this.persistToHistory(projectId);
+    console.error(`[Overture] Plan settings updated for ${planId}: model=${settings.model}, provider=${settings.provider}`);
+    return true;
+  }
+
   updateNodeStatus(projectId: string, nodeId: string, status: NodeStatus, output?: string, structuredOutput?: StructuredOutput): void {
     const state = this.projects.get(projectId);
     if (!state) return;
@@ -274,6 +322,19 @@ class MultiProjectPlanStore {
       }
       this.persistToHistory(projectId);
     }
+  }
+
+  updateNodeDescription(projectId: string, nodeId: string, description: string): boolean {
+    const state = this.projects.get(projectId);
+    if (!state) return false;
+
+    const node = state.nodes.find((n) => n.id === nodeId);
+    if (node) {
+      node.description = description;
+      this.persistToHistory(projectId);
+      return true;
+    }
+    return false;
   }
 
   // === Approval ===
@@ -541,6 +602,73 @@ class MultiProjectPlanStore {
     return { removedEdgeIds, reconnectionEdges };
   }
 
+  /**
+   * Insert nodes BEFORE a reference node.
+   * Used when inserting before the first node in a plan.
+   */
+  insertNodesBefore(
+    projectId: string,
+    beforeNodeId: string,
+    newNodes: PlanNode[],
+    newEdges: PlanEdge[]
+  ): { removedEdgeIds: string[]; allEdges: PlanEdge[] } {
+    const state = this.projects.get(projectId);
+    if (!state) return { removedEdgeIds: [], allEdges: [] };
+
+    // Find edges pointing TO the beforeNode (incoming edges)
+    const incomingEdges = state.edges.filter(e => e.to === beforeNodeId);
+    const removedEdgeIds = incomingEdges.map(e => e.id);
+
+    // Remove the incoming edges
+    state.edges = state.edges.filter(e => e.to !== beforeNodeId);
+
+    // Add the new nodes
+    state.nodes.push(...newNodes);
+
+    // Add the provided edges (connections between new nodes)
+    state.edges.push(...newEdges);
+
+    // Find the "entry nodes" of the new node chain - nodes that have no incoming edges from other new nodes
+    const newNodeIds = new Set(newNodes.map(n => n.id));
+    const entryNodeIds = newNodes
+      .filter(n => !newEdges.some(e => e.to === n.id && newNodeIds.has(e.from)))
+      .map(n => n.id);
+
+    // Find the "exit nodes" of the new node chain - nodes that don't have outgoing edges to other new nodes
+    const exitNodeIds = newNodes
+      .filter(n => !newEdges.some(e => e.from === n.id && newNodeIds.has(e.to)))
+      .map(n => n.id);
+
+    const allNewEdges: PlanEdge[] = [...newEdges];
+    let edgeCounter = Date.now();
+
+    // Connect incoming edges to entry nodes
+    for (const incomingEdge of incomingEdges) {
+      for (const entryNodeId of entryNodeIds) {
+        const reconnectEdge: PlanEdge = {
+          id: `e_inserted_${edgeCounter++}`,
+          from: incomingEdge.from,
+          to: entryNodeId,
+        };
+        state.edges.push(reconnectEdge);
+        allNewEdges.push(reconnectEdge);
+      }
+    }
+
+    // Connect exit nodes to the beforeNode
+    for (const exitNodeId of exitNodeIds) {
+      const exitEdge: PlanEdge = {
+        id: `e_inserted_${edgeCounter++}`,
+        from: exitNodeId,
+        to: beforeNodeId,
+      };
+      state.edges.push(exitEdge);
+      allNewEdges.push(exitEdge);
+    }
+
+    return { removedEdgeIds, allEdges: allNewEdges };
+  }
+
   removeNode(projectId: string, nodeId: string): { newEdges: PlanEdge[]; removedEdgeIds: string[] } {
     const state = this.projects.get(projectId);
     if (!state) return { newEdges: [], removedEdgeIds: [] };
@@ -653,7 +781,8 @@ class MultiProjectPlanStore {
 
   /**
    * Persist current project state to history
-   * Uses immediate write to ensure data is not lost
+   * Uses project-local storage (.overture.json) if workspace path is available,
+   * otherwise falls back to global storage (~/.overture/history.json)
    */
   private async persistToHistory(projectId: string): Promise<void> {
     const state = this.projects.get(projectId);
@@ -668,10 +797,19 @@ class MultiProjectPlanStore {
         selectedBranches: state.selectedBranches,
         nodeConfigs: state.nodeConfigs
       };
-      await historyStorage.savePlan(persisted);
-      // Force immediate write to ensure data is persisted
-      await historyStorage.saveNow();
-      console.error(`[Overture] Persisted to history: ${state.plan.id} (${state.nodes.length} nodes)`);
+
+      // Try project-local storage first, fall back to global
+      const projectStorage = this.getProjectStorage(projectId);
+      if (projectStorage) {
+        await projectStorage.addPlanToHistory(persisted);
+        await projectStorage.saveNow();
+        console.error(`[Overture] Persisted to project storage: ${state.plan.id} (${state.nodes.length} nodes)`);
+      } else {
+        // Fall back to global storage
+        await historyStorage.savePlan(persisted);
+        await historyStorage.saveNow();
+        console.error(`[Overture] Persisted to global storage: ${state.plan.id} (${state.nodes.length} nodes)`);
+      }
     } catch (error) {
       console.error('[Overture] Failed to persist plan to history:', error);
     }
@@ -680,7 +818,7 @@ class MultiProjectPlanStore {
   /**
    * Force immediate persist to history (for UI-triggered saves)
    */
-  async forcePersist(projectId: string): Promise<{ success: boolean; planId?: string }> {
+  async forcePersist(projectId: string): Promise<{ success: boolean; planId?: string; storageType?: 'project' | 'global' }> {
     console.error(`[Overture] forcePersist called for project: ${projectId}`);
     console.error(`[Overture] Available projects:`, Array.from(this.projects.keys()));
 
@@ -699,11 +837,21 @@ class MultiProjectPlanStore {
         selectedBranches: state.selectedBranches,
         nodeConfigs: state.nodeConfigs
       };
-      await historyStorage.savePlan(persisted);
-      // Force immediate write (bypass debounce)
-      await historyStorage.saveNow();
-      console.error(`[Overture] Plan ${state.plan.id} force-persisted to history`);
-      return { success: true, planId: state.plan.id };
+
+      // Try project-local storage first, fall back to global
+      const projectStorage = this.getProjectStorage(projectId);
+      if (projectStorage) {
+        await projectStorage.addPlanToHistory(persisted);
+        await projectStorage.saveNow();
+        console.error(`[Overture] Plan ${state.plan.id} force-persisted to project storage`);
+        return { success: true, planId: state.plan.id, storageType: 'project' };
+      } else {
+        // Fall back to global storage
+        await historyStorage.savePlan(persisted);
+        await historyStorage.saveNow();
+        console.error(`[Overture] Plan ${state.plan.id} force-persisted to global storage`);
+        return { success: true, planId: state.plan.id, storageType: 'global' };
+      }
     } catch (error) {
       console.error('[Overture] Failed to force persist plan:', error);
       return { success: false };
@@ -711,10 +859,53 @@ class MultiProjectPlanStore {
   }
 
   /**
-   * Load a plan from history into a project
+   * Load a plan from a PersistedPlan object directly into the store
+   * Used when loading from project storage
    */
-  async loadFromHistory(planId: string): Promise<ProjectPlanState | null> {
-    const persisted = await historyStorage.getPlan(planId);
+  async loadFromPersistedPlan(persisted: PersistedPlan): Promise<ProjectPlanState | null> {
+    const state: ProjectPlanState = {
+      projectId: persisted.plan.projectId,
+      workspacePath: persisted.plan.workspacePath,
+      plan: persisted.plan,
+      nodes: persisted.nodes,
+      edges: persisted.edges,
+      fieldValues: persisted.fieldValues,
+      selectedBranches: persisted.selectedBranches,
+      nodeConfigs: persisted.nodeConfigs
+    };
+
+    this.projects.set(state.projectId, state);
+    console.error(`[Overture] Loaded plan from PersistedPlan: ${persisted.plan.id}`);
+    return state;
+  }
+
+  /**
+   * Load a plan from history into a project
+   * Checks both project-local storage and global storage
+   */
+  async loadFromHistory(planId: string, workspacePath?: string): Promise<ProjectPlanState | null> {
+    let persisted: PersistedPlan | null = null;
+
+    // If we have a workspace path, try project storage first
+    if (workspacePath) {
+      // We need the projectId to get storage, but for loading we might not have it yet
+      // So we temporarily create a storage instance
+      const tempProjectId = 'temp_lookup';
+      const projectStorage = projectStorageRegistry.getStorage(workspacePath, tempProjectId);
+      persisted = await projectStorage.getPlan(planId);
+      if (persisted) {
+        console.error(`[Overture] Loaded plan ${planId} from project storage`);
+      }
+    }
+
+    // Fall back to global storage
+    if (!persisted) {
+      persisted = await historyStorage.getPlan(planId);
+      if (persisted) {
+        console.error(`[Overture] Loaded plan ${planId} from global storage`);
+      }
+    }
+
     if (!persisted) return null;
 
     const state: ProjectPlanState = {
@@ -735,22 +926,42 @@ class MultiProjectPlanStore {
   /**
    * Restore a project from history by projectId
    * Finds the most recent plan for this project and loads it
+   * Checks both project-local storage and global storage
    */
-  async restoreProjectFromHistory(projectId: string): Promise<boolean> {
+  async restoreProjectFromHistory(projectId: string, workspacePath?: string): Promise<boolean> {
     try {
-      const entries = await historyStorage.getEntriesByProject(projectId);
-      if (entries.length === 0) {
-        console.error(`[Overture] No history entries found for project ${projectId}`);
-        return false;
+      let entries: HistoryEntry[] = [];
+      let persisted: PersistedPlan | null = null;
+
+      // If we have a workspace path, try project storage first
+      if (workspacePath) {
+        const projectStorage = projectStorageRegistry.getStorage(workspacePath, projectId);
+        entries = await projectStorage.getHistoryEntries();
+
+        if (entries.length > 0) {
+          const mostRecent = entries[0];
+          console.error(`[Overture] Found project storage entry: ${mostRecent.title} (${mostRecent.id})`);
+          persisted = await projectStorage.getPlan(mostRecent.id);
+        }
       }
 
-      // Get the most recent entry (entries are sorted by updatedAt desc)
-      const mostRecent = entries[0];
-      console.error(`[Overture] Found history entry: ${mostRecent.title} (${mostRecent.id})`);
-
-      const persisted = await historyStorage.getPlan(mostRecent.id);
+      // Fall back to global storage if no entries found in project storage
       if (!persisted) {
-        console.error(`[Overture] Could not load plan data for ${mostRecent.id}`);
+        entries = await historyStorage.getEntriesByProject(projectId);
+        if (entries.length === 0) {
+          console.error(`[Overture] No history entries found for project ${projectId}`);
+          return false;
+        }
+
+        // Get the most recent entry (entries are sorted by updatedAt desc)
+        const mostRecent = entries[0];
+        console.error(`[Overture] Found global storage entry: ${mostRecent.title} (${mostRecent.id})`);
+
+        persisted = await historyStorage.getPlan(mostRecent.id);
+      }
+
+      if (!persisted) {
+        console.error(`[Overture] Could not load plan data for project ${projectId}`);
         return false;
       }
 
@@ -783,6 +994,106 @@ class MultiProjectPlanStore {
       console.error(`[Overture] Failed to restore project from history:`, error);
       return false;
     }
+  }
+
+  /**
+   * Get all history entries for a project
+   * Combines entries from project-local storage and global storage
+   */
+  async getProjectHistory(projectId: string, workspacePath?: string): Promise<HistoryEntry[]> {
+    const allEntries: HistoryEntry[] = [];
+    const seenIds = new Set<string>();
+
+    // Get entries from project storage first (higher priority)
+    if (workspacePath) {
+      try {
+        const projectStorage = projectStorageRegistry.getStorage(workspacePath, projectId);
+        const projectEntries = await projectStorage.getHistoryEntries();
+        for (const entry of projectEntries) {
+          if (!seenIds.has(entry.id)) {
+            seenIds.add(entry.id);
+            allEntries.push(entry);
+          }
+        }
+        console.error(`[Overture] Found ${projectEntries.length} entries in project storage`);
+      } catch (error) {
+        console.error('[Overture] Failed to get project storage history:', error);
+      }
+    }
+
+    // Also get entries from global storage
+    try {
+      const globalEntries = await historyStorage.getEntriesByProject(projectId);
+      for (const entry of globalEntries) {
+        if (!seenIds.has(entry.id)) {
+          seenIds.add(entry.id);
+          allEntries.push(entry);
+        }
+      }
+      console.error(`[Overture] Found ${globalEntries.length} entries in global storage`);
+    } catch (error) {
+      console.error('[Overture] Failed to get global storage history:', error);
+    }
+
+    // Sort by updatedAt descending (most recent first)
+    allEntries.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+    return allEntries;
+  }
+
+  /**
+   * Get all history entries grouped by project
+   * Combines entries from all project storages and global storage
+   */
+  async getAllHistoryGroupedByProject(): Promise<Map<string, { projectName: string; workspacePath: string; entries: HistoryEntry[] }>> {
+    const grouped = new Map<string, { projectName: string; workspacePath: string; entries: HistoryEntry[] }>();
+
+    // Get entries from all active project storages
+    for (const storage of projectStorageRegistry.getAllStorages()) {
+      try {
+        const entries = await storage.getHistoryEntries();
+        for (const entry of entries) {
+          if (!grouped.has(entry.projectId)) {
+            grouped.set(entry.projectId, {
+              projectName: entry.projectName,
+              workspacePath: entry.workspacePath,
+              entries: []
+            });
+          }
+          grouped.get(entry.projectId)!.entries.push(entry);
+        }
+      } catch (error) {
+        console.error('[Overture] Failed to get project storage history:', error);
+      }
+    }
+
+    // Get entries from global storage
+    try {
+      const globalEntries = await historyStorage.getAllEntries();
+      for (const entry of globalEntries) {
+        if (!grouped.has(entry.projectId)) {
+          grouped.set(entry.projectId, {
+            projectName: entry.projectName,
+            workspacePath: entry.workspacePath,
+            entries: []
+          });
+        }
+        // Only add if not already present (avoid duplicates)
+        const group = grouped.get(entry.projectId)!;
+        if (!group.entries.some(e => e.id === entry.id)) {
+          group.entries.push(entry);
+        }
+      }
+    } catch (error) {
+      console.error('[Overture] Failed to get global storage history:', error);
+    }
+
+    // Sort entries within each group by updatedAt descending
+    for (const group of grouped.values()) {
+      group.entries.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    }
+
+    return grouped;
   }
 
   // === Resume Info ===

@@ -5,8 +5,9 @@ import { fileURLToPath } from 'url';
 import { StreamingXMLParser } from '../parser/xml-parser.js';
 import { parseStructuredOutput } from '../parser/output-parser.js';
 import { multiProjectPlanStore } from '../store/plan-store.js';
+import { settingsStore } from '../store/settings-store.js';
 import { wsManager } from '../websocket/ws-server.js';
-import { Plan, PlanNode, PlanEdge, NodeStatus, McpServer, ProjectContext, ResumePlanInfo, StructuredOutput } from '../types.js';
+import { Plan, PlanNode, PlanEdge, NodeStatus, McpServer, ProjectContext, ResumePlanInfo, StructuredOutput, FileAttachment } from '../types.js';
 
 // Track parsers per project
 const currentParsers: Map<string, StreamingXMLParser> = new Map();
@@ -599,6 +600,19 @@ export function handleSubmitPlan(
   console.error('[Overture] Project stored with ID:', projectId);
   console.error('[Overture] All projects after submit:', Array.from(multiProjectPlanStore.getAllProjects().map(p => p.projectId)));
 
+  // Check minimum nodes requirement
+  const minNodesRequired = settingsStore.getMinNodesPerPlan();
+  if (nodes.length > 0 && nodes.length < minNodesRequired) {
+    console.error(`[Overture] Plan rejected: ${nodes.length} nodes < minimum ${minNodesRequired}`);
+    // Clear the plan data since it doesn't meet requirements
+    multiProjectPlanStore.clearProjectPlan(projectId);
+    return {
+      success: false,
+      message: `Plan rejected: Only ${nodes.length} node(s) provided, but minimum ${minNodesRequired} node(s) required. Please create a more detailed plan.`,
+      projectId
+    };
+  }
+
   // Success if we have nodes rendered - even if there were XML parsing issues
   if (nodes.length > 0) {
     return {
@@ -625,13 +639,15 @@ export function handleSubmitPlan(
  * When approved, includes the first node's information to start execution
  * Each subsequent node's info is returned by update_node_status when the previous node completes
  */
-export async function handleGetApproval(projectId?: string): Promise<{
+export async function handleGetApproval(projectId?: string, workspacePath?: string): Promise<{
   status: 'approved' | 'cancelled' | 'pending';
   firstNode?: NextNodeInfo;
   message: string;
   projectId?: string;
+  workspacePath?: string;
 }> {
   const effectiveProjectId = projectId || currentProjectId;
+  const effectiveWorkspacePath = workspacePath;
 
   console.error(`[Overture] get_approval called for project: ${effectiveProjectId}`);
   console.error(`[Overture] Provided projectId: ${projectId}, currentProjectId: ${currentProjectId}`);
@@ -676,6 +692,7 @@ export async function handleGetApproval(projectId?: string): Promise<{
       firstNode: firstNodeInfo,
       message: 'Plan approved by user. Execute firstNode, then call update_node_status to get the next node.',
       projectId: effectiveProjectId,
+      workspacePath: effectiveWorkspacePath,
     };
   }
 
@@ -684,6 +701,7 @@ export async function handleGetApproval(projectId?: string): Promise<{
       status: 'cancelled',
       message: 'Plan cancelled by user',
       projectId: effectiveProjectId,
+      workspacePath: effectiveWorkspacePath,
     };
   }
 
@@ -692,6 +710,7 @@ export async function handleGetApproval(projectId?: string): Promise<{
     status: 'pending',
     message: 'Waiting for user approval. Call get_approval again to continue waiting.',
     projectId: effectiveProjectId,
+    workspacePath: effectiveWorkspacePath,
   };
 }
 
@@ -700,12 +719,14 @@ export async function handleGetApproval(projectId?: string): Promise<{
  */
 export async function handleCheckPause(
   wait: boolean = false,
-  projectId?: string
+  projectId?: string,
+  workspacePath?: string
 ): Promise<{
   isPaused: boolean;
   wasResumed: boolean;
   message: string;
   projectId?: string;
+  workspacePath?: string;
 }> {
   const effectiveProjectId = projectId || currentProjectId;
   const isPaused = multiProjectPlanStore.getIsPaused(effectiveProjectId);
@@ -716,6 +737,7 @@ export async function handleCheckPause(
       wasResumed: false,
       message: 'Execution is not paused',
       projectId: effectiveProjectId,
+      workspacePath,
     };
   }
 
@@ -725,6 +747,7 @@ export async function handleCheckPause(
       wasResumed: false,
       message: 'Execution is paused. Call with wait=true to block until resumed.',
       projectId: effectiveProjectId,
+      workspacePath,
     };
   }
 
@@ -736,6 +759,7 @@ export async function handleCheckPause(
     wasResumed: true,
     message: 'Execution was paused and has now been resumed',
     projectId: effectiveProjectId,
+    workspacePath,
   };
 }
 
@@ -749,7 +773,8 @@ export function handleUpdateNodeStatus(
   nodeId: string,
   status: NodeStatus,
   output?: string,
-  projectId?: string
+  projectId?: string,
+  workspacePath?: string
 ): {
   success: boolean;
   message: string;
@@ -758,6 +783,7 @@ export function handleUpdateNodeStatus(
   isLastNode?: boolean;
   isPaused?: boolean;
   projectId?: string;
+  workspacePath?: string;
 } {
   const effectiveProjectId = projectId || currentProjectId;
   const plan = multiProjectPlanStore.getPlan(effectiveProjectId);
@@ -768,7 +794,7 @@ export function handleUpdateNodeStatus(
   const node = nodes.find((n) => n.id === nodeId);
 
   if (!node) {
-    return { success: false, message: `Node ${nodeId} not found`, projectId: effectiveProjectId };
+    return { success: false, message: `Node ${nodeId} not found`, projectId: effectiveProjectId, workspacePath };
   }
 
   // AUTO-APPROVAL: If the plan hasn't been approved yet but the agent is calling update_node_status,
@@ -817,6 +843,7 @@ export function handleUpdateNodeStatus(
       currentNode: currentNodeInfo,
       isPaused,
       projectId: effectiveProjectId,
+      workspacePath,
     };
   }
 
@@ -831,6 +858,7 @@ export function handleUpdateNodeStatus(
         nextNode: nextNodeInfo,
         isPaused,
         projectId: effectiveProjectId,
+        workspacePath,
       };
     } else {
       // No next node - this was the last one
@@ -840,6 +868,7 @@ export function handleUpdateNodeStatus(
         isLastNode: true,
         isPaused,
         projectId: effectiveProjectId,
+        workspacePath,
       };
     }
   }
@@ -849,6 +878,7 @@ export function handleUpdateNodeStatus(
     message: `Node ${nodeId} status updated to ${status}`,
     isPaused,
     projectId: effectiveProjectId,
+    workspacePath,
   };
 }
 
@@ -967,21 +997,21 @@ function findNextNode(
 /**
  * Mark the plan as completed
  */
-export function handlePlanCompleted(projectId?: string): { success: boolean; message: string; projectId?: string } {
+export function handlePlanCompleted(projectId?: string, workspacePath?: string): { success: boolean; message: string; projectId?: string; workspacePath?: string } {
   const effectiveProjectId = projectId || currentProjectId;
   multiProjectPlanStore.updatePlanStatus(effectiveProjectId, 'completed');
   wsManager.broadcastToProject(effectiveProjectId, { type: 'plan_completed', projectId: effectiveProjectId });
-  return { success: true, message: 'Plan completed', projectId: effectiveProjectId };
+  return { success: true, message: 'Plan completed', projectId: effectiveProjectId, workspacePath };
 }
 
 /**
  * Mark the plan as failed
  */
-export function handlePlanFailed(error: string, projectId?: string): { success: boolean; message: string; projectId?: string } {
+export function handlePlanFailed(error: string, projectId?: string, workspacePath?: string): { success: boolean; message: string; projectId?: string; workspacePath?: string } {
   const effectiveProjectId = projectId || currentProjectId;
   multiProjectPlanStore.updatePlanStatus(effectiveProjectId, 'failed');
   wsManager.broadcastToProject(effectiveProjectId, { type: 'plan_failed', error, projectId: effectiveProjectId });
-  return { success: true, message: 'Plan failed', projectId: effectiveProjectId };
+  return { success: true, message: 'Plan failed', projectId: effectiveProjectId, workspacePath };
 }
 
 /**
@@ -990,7 +1020,8 @@ export function handlePlanFailed(error: string, projectId?: string): { success: 
  */
 export async function handleCheckRerun(
   timeoutMs: number = 5000,
-  projectId?: string
+  projectId?: string,
+  workspacePath?: string
 ): Promise<{
   hasRerun: boolean;
   nodeId?: string;
@@ -998,6 +1029,7 @@ export async function handleCheckRerun(
   nodeInfo?: NextNodeInfo;
   message: string;
   projectId?: string;
+  workspacePath?: string;
 }> {
   const effectiveProjectId = projectId || currentProjectId;
   const rerunRequest = await multiProjectPlanStore.waitForRerun(effectiveProjectId, timeoutMs);
@@ -1007,6 +1039,7 @@ export async function handleCheckRerun(
       hasRerun: false,
       message: 'No rerun request pending',
       projectId: effectiveProjectId,
+      workspacePath,
     };
   }
 
@@ -1051,6 +1084,7 @@ export async function handleCheckRerun(
     nodeInfo,
     message: `Rerun requested from node ${rerunRequest.nodeId} (${rerunRequest.mode})`,
     projectId: effectiveProjectId,
+    workspacePath,
   };
 }
 
@@ -1058,11 +1092,12 @@ export async function handleCheckRerun(
  * Get resume information for a paused or failed plan
  * Returns detailed state information to help the agent continue execution
  */
-export function handleGetResumeInfo(projectId?: string): {
+export function handleGetResumeInfo(projectId?: string, workspacePath?: string): {
   success: boolean;
   resumeInfo?: ResumePlanInfo;
   message: string;
   projectId?: string;
+  workspacePath?: string;
 } {
   const effectiveProjectId = projectId || currentProjectId;
   const resumeInfo = multiProjectPlanStore.getResumeInfo(effectiveProjectId);
@@ -1072,6 +1107,7 @@ export function handleGetResumeInfo(projectId?: string): {
       success: false,
       message: `No active plan found for project: ${effectiveProjectId}`,
       projectId: effectiveProjectId,
+      workspacePath,
     };
   }
 
@@ -1084,6 +1120,7 @@ export function handleGetResumeInfo(projectId?: string): {
         : 'No current node.'
     } Completed: ${resumeInfo.completedNodes.length}, Pending: ${resumeInfo.pendingNodes.length}, Failed: ${resumeInfo.failedNodes.length}`,
     projectId: effectiveProjectId,
+    workspacePath,
   };
 }
 
@@ -1111,12 +1148,14 @@ export interface NodeData {
  */
 export function handleRequestPlanUpdate(
   operations: PlanOperation[],
-  projectId?: string
+  projectId?: string,
+  workspacePath?: string
 ): {
   success: boolean;
   message: string;
   results: Array<{ op: string; success: boolean; message: string }>;
   projectId?: string;
+  workspacePath?: string;
 } {
   const effectiveProjectId = projectId || currentProjectId;
 
@@ -1127,6 +1166,7 @@ export function handleRequestPlanUpdate(
       message: `No active plan found for project: ${effectiveProjectId}. Submit a new plan instead.`,
       results: [],
       projectId: effectiveProjectId,
+      workspacePath,
     };
   }
 
@@ -1191,6 +1231,7 @@ export function handleRequestPlanUpdate(
     message: `Applied ${successCount}/${operations.length} operations. ${failCount > 0 ? 'Some operations failed.' : 'All operations succeeded.'} Call get_approval to confirm changes with user.`,
     results,
     projectId: effectiveProjectId,
+    workspacePath,
   };
 }
 
@@ -1385,10 +1426,11 @@ function applyReplaceOperation(
  * Call this BEFORE submitting a new plan
  * NOTE: This does NOT clear existing plans - new plans are added alongside existing ones (Figma-style)
  */
-export function handleCreateNewPlan(projectId?: string): {
+export function handleCreateNewPlan(projectId?: string, workspacePath?: string): {
   success: boolean;
   message: string;
   projectId?: string;
+  workspacePath?: string;
 } {
   const effectiveProjectId = projectId || currentProjectId;
 
@@ -1410,6 +1452,7 @@ export function handleCreateNewPlan(projectId?: string): {
     success: true,
     message: `Ready to receive new plan. Submit the new plan using submit_plan or stream_plan_chunk, then call get_approval to wait for user approval. Note: Existing plans will be preserved on the canvas.`,
     projectId: effectiveProjectId,
+    workspacePath,
   };
 }
 
@@ -1511,5 +1554,303 @@ export async function handleGetUsageInstructions(agentType: string): Promise<{
     agentType: mappedType,
     message: `Failed to load instructions for ${mappedType}. Instructions file not found.`,
     availableAgents,
+  };
+}
+
+/**
+ * Get detailed information about a specific node in the plan.
+ * Returns node metadata, field values, attachments, MCP servers, and branch information.
+ */
+export function handleGetNodeInfo(
+  nodeId: string,
+  projectId?: string,
+  workspacePath?: string
+): {
+  success: boolean;
+  node?: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    description: string;
+    complexity?: string;
+    expectedOutput?: string;
+    risks?: string;
+    fieldValues: Record<string, string>;
+    attachments: FileAttachment[];
+    mcpServers: McpServer[];
+    metaInstructions?: string;
+    isBranchPoint?: boolean;
+    branchTargetIds?: string[];
+    selectedBranchId?: string;
+    branchSourceId?: string;
+    output?: string;
+  };
+  error?: string;
+  projectId?: string;
+  workspacePath?: string;
+} {
+  const effectiveProjectId = projectId || currentProjectId;
+
+  const nodes = multiProjectPlanStore.getNodes(effectiveProjectId);
+  const nodeConfigs = multiProjectPlanStore.getNodeConfigs(effectiveProjectId);
+  const selectedBranches = multiProjectPlanStore.getSelectedBranches(effectiveProjectId);
+
+  const node = nodes.find((n) => n.id === nodeId);
+
+  if (!node) {
+    return {
+      success: false,
+      error: `Node ${nodeId} not found in project ${effectiveProjectId}`,
+      projectId: effectiveProjectId,
+      workspacePath,
+    };
+  }
+
+  // Get the node configuration (field values, attachments, etc.)
+  const config = nodeConfigs[nodeId] || { fieldValues: {}, attachments: [] };
+
+  // Determine selected branch ID for this node if it's a branch point
+  let selectedBranchId: string | undefined;
+  if (node.isBranchPoint) {
+    selectedBranchId = selectedBranches[nodeId];
+  }
+
+  return {
+    success: true,
+    node: {
+      id: node.id,
+      title: node.title,
+      type: node.type,
+      status: node.status,
+      description: node.description,
+      complexity: node.complexity,
+      expectedOutput: node.expectedOutput,
+      risks: node.risks,
+      fieldValues: config.fieldValues || {},
+      attachments: config.attachments || [],
+      mcpServers: config.mcpServers || [],
+      metaInstructions: config.metaInstructions,
+      isBranchPoint: node.isBranchPoint,
+      branchTargetIds: node.branchTargetIds,
+      selectedBranchId,
+      branchSourceId: node.branchSourceId,
+      output: node.output,
+    },
+    projectId: effectiveProjectId,
+    workspacePath,
+  };
+}
+
+/**
+ * Node detail update structure for batch updates
+ */
+export interface NodeDetailUpdate {
+  node_id: string;
+  title?: string;
+  description?: string;
+  complexity?: 'low' | 'medium' | 'high';
+  expectedOutput?: string;
+  risks?: string;
+}
+
+/**
+ * Update multiple node details at once (batch operation).
+ * This allows agents to update title, description, complexity, expectedOutput, and risks
+ * for multiple nodes in a single call.
+ */
+export function handleUpdateNodesDetail(
+  updates: NodeDetailUpdate[],
+  projectId?: string,
+  workspacePath?: string
+): {
+  success: boolean;
+  updatedCount: number;
+  errors?: string[];
+  projectId?: string;
+  workspacePath?: string;
+} {
+  const effectiveProjectId = projectId || currentProjectId;
+  const state = multiProjectPlanStore.getState(effectiveProjectId);
+
+  if (!state) {
+    return {
+      success: false,
+      updatedCount: 0,
+      errors: [`No active plan found for project: ${effectiveProjectId}`],
+      projectId: effectiveProjectId,
+      workspacePath,
+    };
+  }
+
+  const errors: string[] = [];
+  let updatedCount = 0;
+  const appliedUpdates: Array<{ nodeId: string; updates: Partial<PlanNode> }> = [];
+
+  for (const update of updates) {
+    const nodeIndex = state.nodes.findIndex(n => n.id === update.node_id);
+
+    if (nodeIndex < 0) {
+      errors.push(`Node ${update.node_id} not found`);
+      continue;
+    }
+
+    const node = state.nodes[nodeIndex];
+    const nodeUpdates: Partial<PlanNode> = {};
+
+    // Apply updates only for provided fields
+    if (update.title !== undefined) {
+      node.title = update.title;
+      nodeUpdates.title = update.title;
+    }
+    if (update.description !== undefined) {
+      node.description = update.description;
+      nodeUpdates.description = update.description;
+    }
+    if (update.complexity !== undefined) {
+      node.complexity = update.complexity;
+      nodeUpdates.complexity = update.complexity;
+    }
+    if (update.expectedOutput !== undefined) {
+      node.expectedOutput = update.expectedOutput;
+      nodeUpdates.expectedOutput = update.expectedOutput;
+    }
+    if (update.risks !== undefined) {
+      node.risks = update.risks;
+      nodeUpdates.risks = update.risks;
+    }
+
+    // Track what was updated for the WebSocket broadcast
+    if (Object.keys(nodeUpdates).length > 0) {
+      appliedUpdates.push({ nodeId: update.node_id, updates: nodeUpdates });
+      updatedCount++;
+    }
+  }
+
+  // Broadcast all updates in a single message
+  if (appliedUpdates.length > 0) {
+    wsManager.broadcastToProject(effectiveProjectId, {
+      type: 'nodes_detail_updated',
+      updates: appliedUpdates,
+      projectId: effectiveProjectId,
+    });
+    console.error(`[Overture] Updated details for ${updatedCount} node(s) in project ${effectiveProjectId}`);
+  }
+
+  return {
+    success: errors.length === 0,
+    updatedCount,
+    errors: errors.length > 0 ? errors : undefined,
+    projectId: effectiveProjectId,
+    workspacePath,
+  };
+}
+
+/**
+ * Update a single node's details.
+ * This allows agents to update title, description, complexity, expectedOutput, and risks
+ * for a specific node.
+ */
+export function handleUpdateNodeDetail(
+  nodeId: string,
+  updates: {
+    title?: string;
+    description?: string;
+    complexity?: 'low' | 'medium' | 'high';
+    expectedOutput?: string;
+    risks?: string;
+  },
+  projectId?: string,
+  workspacePath?: string
+): {
+  success: boolean;
+  message: string;
+  node?: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    description: string;
+    complexity?: string;
+    expectedOutput?: string;
+    risks?: string;
+  };
+  projectId?: string;
+  workspacePath?: string;
+} {
+  const effectiveProjectId = projectId || currentProjectId;
+  const state = multiProjectPlanStore.getState(effectiveProjectId);
+
+  if (!state) {
+    return {
+      success: false,
+      message: `No active plan found for project: ${effectiveProjectId}`,
+      projectId: effectiveProjectId,
+      workspacePath,
+    };
+  }
+
+  const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
+
+  if (nodeIndex < 0) {
+    return {
+      success: false,
+      message: `Node ${nodeId} not found in project ${effectiveProjectId}`,
+      projectId: effectiveProjectId,
+      workspacePath,
+    };
+  }
+
+  const node = state.nodes[nodeIndex];
+  const nodeUpdates: Partial<PlanNode> = {};
+
+  // Apply updates only for provided fields
+  if (updates.title !== undefined) {
+    node.title = updates.title;
+    nodeUpdates.title = updates.title;
+  }
+  if (updates.description !== undefined) {
+    node.description = updates.description;
+    nodeUpdates.description = updates.description;
+  }
+  if (updates.complexity !== undefined) {
+    node.complexity = updates.complexity;
+    nodeUpdates.complexity = updates.complexity;
+  }
+  if (updates.expectedOutput !== undefined) {
+    node.expectedOutput = updates.expectedOutput;
+    nodeUpdates.expectedOutput = updates.expectedOutput;
+  }
+  if (updates.risks !== undefined) {
+    node.risks = updates.risks;
+    nodeUpdates.risks = updates.risks;
+  }
+
+  // Broadcast the update
+  if (Object.keys(nodeUpdates).length > 0) {
+    wsManager.broadcastToProject(effectiveProjectId, {
+      type: 'node_detail_updated',
+      nodeId,
+      updates: nodeUpdates,
+      projectId: effectiveProjectId,
+    });
+    console.error(`[Overture] Updated details for node ${nodeId} in project ${effectiveProjectId}`);
+  }
+
+  return {
+    success: true,
+    message: `Node ${nodeId} updated successfully`,
+    node: {
+      id: node.id,
+      title: node.title,
+      type: node.type,
+      status: node.status,
+      description: node.description,
+      complexity: node.complexity,
+      expectedOutput: node.expectedOutput,
+      risks: node.risks,
+    },
+    projectId: effectiveProjectId,
+    workspacePath,
   };
 }

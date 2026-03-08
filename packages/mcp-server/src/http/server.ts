@@ -62,6 +62,47 @@ export function startHttpServer(port: number): void {
     }
   });
 
+  // Endpoint to read file content for Monaco viewer
+  app.post('/api/read-file', async (req, res) => {
+    try {
+      const { filePath } = req.body as { filePath?: string };
+
+      if (!filePath) {
+        return res.status(400).json({ error: 'filePath is required' });
+      }
+
+      // Security check: only allow reading from valid paths (not traversal attacks)
+      const normalizedPath = path.normalize(filePath);
+      if (normalizedPath.includes('..') && !path.isAbsolute(normalizedPath)) {
+        return res.status(400).json({ error: 'Invalid file path' });
+      }
+
+      // Check if file exists
+      try {
+        await fsp.access(normalizedPath, fs.constants.R_OK);
+      } catch {
+        return res.status(404).json({ error: 'File not found or not readable' });
+      }
+
+      // Read file content
+      const content = await fsp.readFile(normalizedPath, 'utf-8');
+
+      // Get file stats for metadata
+      const stats = await fsp.stat(normalizedPath);
+      const lineCount = content.split('\n').length;
+
+      res.json({
+        content,
+        lineCount,
+        size: stats.size,
+        lastModified: stats.mtime.toISOString(),
+      });
+    } catch (error) {
+      console.error('[Overture] Failed to read file:', error);
+      res.status(500).json({ error: 'Failed to read file' });
+    }
+  });
+
   app.post('/api/attachments/save', async (req, res) => {
     try {
       const { fileName, contentBase64 } = req.body as { fileName?: string; contentBase64?: string };

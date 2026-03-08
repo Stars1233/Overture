@@ -19,9 +19,15 @@ interface TaskNodeData extends PlanNode {
   isNextToExecute?: boolean;
   canModify?: boolean;
   canInsertAfter?: boolean;
+  canInsertBefore?: boolean;
   canRemove?: boolean;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  canShowContextMenu?: boolean;
+  planId?: string;
   onInsertNode?: (afterNodeId: string) => void;
   onRemoveNode?: (nodeId: string) => void;
+  onContextMenu?: (event: React.MouseEvent, nodeId: string, planId: string) => void;
   // Branch point info
   isBranchPoint?: boolean;
   branchTargetIds?: string[];
@@ -55,6 +61,17 @@ export const TaskNode = memo(function TaskNode({ data, selected }: TaskNodeProps
   const isDisabled = data.isDisabledBranch;
   const isUnexecuted = data.isUnexecuted;
   const canModify = data.canModify && !isDisabled;
+
+  const handleContextMenu = (event: React.MouseEvent) => {
+    // ALWAYS prevent the browser's default context menu
+    event.preventDefault();
+    event.stopPropagation();
+
+    // Only show our custom context menu if conditions are met
+    if (data.canShowContextMenu && data.onContextMenu && data.planId) {
+      data.onContextMenu(event, data.id, data.planId);
+    }
+  };
 
   const handleMouseEnter = () => {
     if (hoverTimeoutRef.current) {
@@ -115,6 +132,7 @@ export const TaskNode = memo(function TaskNode({ data, selected }: TaskNodeProps
       }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onContextMenu={handleContextMenu}
       className={clsx(
         'px-4 py-3 rounded-xl min-w-[200px] max-w-[280px] relative overflow-visible',
         'bg-surface/80 backdrop-blur-sm',
