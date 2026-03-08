@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { WSMessage, WSClientMessage, ProjectContext, HistoryEntry } from '../types.js';
+import { WSMessage, WSClientMessage, ProjectContext, HistoryEntry, Plan, PlanNode, PlanEdge } from '../types.js';
 import { planStore, multiProjectPlanStore } from '../store/plan-store.js';
 import { historyStorage } from '../storage/history-storage.js';
 import { projectStorageRegistry } from '../storage/project-storage.js';
@@ -576,7 +576,7 @@ class WebSocketManager {
       }
 
       case 'plan_started': {
-        const msg = payload as { type: 'plan_started'; plan: any; projectId?: string };
+        const msg = payload as { type: 'plan_started'; plan: Plan; projectId?: string };
         console.error(`[Overture] Syncing plan_started: ${msg.plan?.id} for project ${projectId}`);
         if (msg.plan) {
           multiProjectPlanStore.startPlan(projectId, msg.plan);
@@ -585,7 +585,7 @@ class WebSocketManager {
       }
 
       case 'node_added': {
-        const msg = payload as { type: 'node_added'; node: any; projectId?: string };
+        const msg = payload as { type: 'node_added'; node: PlanNode; projectId?: string };
         console.error(`[Overture] Syncing node_added: ${msg.node?.id} for project ${projectId}`);
         if (msg.node) {
           multiProjectPlanStore.addNode(projectId, msg.node);
@@ -594,7 +594,7 @@ class WebSocketManager {
       }
 
       case 'edge_added': {
-        const msg = payload as { type: 'edge_added'; edge: any; projectId?: string };
+        const msg = payload as { type: 'edge_added'; edge: PlanEdge; projectId?: string };
         if (msg.edge) {
           multiProjectPlanStore.addEdge(projectId, msg.edge);
         }
@@ -608,7 +608,7 @@ class WebSocketManager {
       }
 
       case 'node_status_updated': {
-        const msg = payload as { type: 'node_status_updated'; nodeId: string; status: any; output?: string; projectId?: string };
+        const msg = payload as { type: 'node_status_updated'; nodeId: string; status: PlanNode['status']; output?: string; projectId?: string };
         multiProjectPlanStore.updateNodeStatus(projectId, msg.nodeId, msg.status, msg.output);
         break;
       }

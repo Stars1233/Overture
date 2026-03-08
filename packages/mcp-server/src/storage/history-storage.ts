@@ -54,9 +54,10 @@ class HistoryStorage {
       this.cache = parsed as HistoryFile;
       console.error(`[Overture] Loaded history: ${this.cache.entries.length} entries`);
       return this.cache as HistoryFile;
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Only create new file if it truly doesn't exist
-      if (error.code === 'ENOENT') {
+      const nodeError = error as NodeJS.ErrnoException;
+      if (nodeError.code === 'ENOENT') {
         console.error('[Overture] History file does not exist, creating new one');
         this.cache = {
           version: 1,

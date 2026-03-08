@@ -23,7 +23,7 @@ function normalizeDiffContent(content: string): string {
   if (!content) return '';
 
   // Normalize line endings
-  let normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
   // Split into lines
   let lines = normalized.split('\n');
